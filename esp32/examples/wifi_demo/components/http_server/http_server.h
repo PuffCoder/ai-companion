@@ -1,0 +1,8 @@
+#ifndef HTTP_SERVER_H
+#define HTTP_SERVER_H
+
+/* Start HTTP server*/
+
+void http_server_init(void);
+
+#endif /* HTTP_SERVER_H */

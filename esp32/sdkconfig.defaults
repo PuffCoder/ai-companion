@@ -1,0 +1,4 @@
+# Copy this file to sdkconfig.defaults.local and fill in your credentials.
+# sdkconfig.defaults.local is gitignored.
+CONFIG_WIFI_SSID="your_ssid_here"
+CONFIG_WIFI_PASSWORD="your_password_here"

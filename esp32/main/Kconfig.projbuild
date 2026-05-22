@@ -1,0 +1,15 @@
+menu "AI Companion Configuration"
+
+    config WIFI_SSID
+        string "WiFi SSID"
+        default "myssid"
+
+    config WIFI_PASSWORD
+        string "WiFi Password"
+        default "mypassword"
+
+    config CLAUDE_API_KEY
+        string "Claude API Key"
+        default ""
+
+endmenu
