@@ -34,7 +34,7 @@ static void wifi_event_handler(
     }
 
     /* Got IP address */
-    else if (event_base == WIFI_EVENT && 
+    else if (event_base == IP_EVENT &&
         event_id == IP_EVENT_STA_GOT_IP) 
     {
         ip_event_got_ip_t *event =
@@ -68,12 +68,12 @@ void wifi_manager_init(void)
 
     /* Initialize NVS */
     ret = nvs_flash_init();
-
-    if (ret != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Failed to initialize NVS");
-        return;
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
+        ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
     }
+    ESP_ERROR_CHECK(ret);
 
     /* Initialize TCP/IP stack */
     ESP_ERROR_CHECK(esp_netif_init());
