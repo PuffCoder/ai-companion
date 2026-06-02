@@ -4,4 +4,5 @@ idf_component_register(
     REQUIRES
         led_strip
         bsp
+        log
 )

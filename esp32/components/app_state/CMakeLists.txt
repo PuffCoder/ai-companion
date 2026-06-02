@@ -1,5 +1,5 @@
 idf_component_register(
     SRCS "app_state.c"
     INCLUDE_DIRS "."
-    REQUIRES freertos esp_log
+    REQUIRES freertos esp_common log
 )

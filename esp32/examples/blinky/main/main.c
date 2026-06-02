@@ -4,7 +4,7 @@
 
 #include "led_strip.h"
 
-#define LED_GPIO 8
+#define LED_GPIO 38
 
 led_strip_handle_t led_strip;
 
@@ -15,7 +15,8 @@ void led_task(void *pvParameters)
 {
     while (1) {
         // RED
-        led_strip_set_pixel(led_strip, 0, 25, 110, 10);
+        // led_strip_set_pixel(led_strip, 0, 10, 0, 71); // purple color
+        led_strip_set_pixel(led_strip, 0, 0, 70, 135);   // blue color
         led_strip_refresh(led_strip);
         vTaskDelay(pdMS_TO_TICKS(500));
 
