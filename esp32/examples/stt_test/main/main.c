@@ -34,7 +34,7 @@ static const char *TAG = "stt_test";
 #define INMP441_WS    GPIO_NUM_2
 #define INMP441_DIN   GPIO_NUM_42
 #define SAMPLE_RATE   16000
-#define MIC_SHIFT     11                 /* 增益：小=响，大=轻（验证过 11 较好）*/
+#define MIC_SHIFT     11                /* 增益：小=响，大=轻（验证过 11 较好）*/
 
 #define REC_SECONDS   5                  /* 单次录音时长 */
 #define REC_SAMPLES   (SAMPLE_RATE * REC_SECONDS)
