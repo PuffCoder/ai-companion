@@ -1,0 +1,12 @@
+# N16R8: 16MB flash + 8MB octal PSRAM
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+
+# 自定义分区表（含 model 分区放唤醒词模型）
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# 唤醒词模型选择见 menuconfig:
+#   ESP Speech Recognition → Load Multiple Wake Words / 选 Hi ESP (wn9_hiesp)
