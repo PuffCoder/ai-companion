@@ -125,6 +125,21 @@ static void mic_read(int16_t *out, int want)
     }
 }
 
+/* 流式回调：逐字打印；遇到 '[' (记忆标记开始) 就停止打印 */
+static void on_delta(const char *delta, void *arg)
+{
+    bool *stop = (bool *)arg;
+    if (*stop) return;
+    const char *br = strchr(delta, '[');
+    if (br) {
+        printf("%.*s", (int)(br - delta), delta);   /* 只打印标记前的部分 */
+        *stop = true;
+    } else {
+        printf("%s", delta);
+    }
+    fflush(stdout);
+}
+
 /* ── 主对话任务（大栈：AFE + TLS）─────────────── */
 static void chat_task(void *arg)
 {
@@ -252,13 +267,19 @@ static void chat_task(void *arg)
                 break;
             }
 
-            /* GPT */
+            /* GPT（流式：边生成边打印）*/
             int64_t t1 = esp_timer_get_time();
-            bool llm_ok = llm_chat(OPENAI_API_KEY, text, reply, sizeof(reply));
+            bool stop_print = false;
+            printf("🤖 AI: ");
+            bool llm_ok = llm_chat_stream(OPENAI_API_KEY, text,
+                                          on_delta, &stop_print, reply, sizeof(reply));
+            printf("\n");
             float llm_sec = (esp_timer_get_time() - t1) / 1e6f;
 
-            if (llm_ok) {
-                /* 提取 [记住]事实[/记住] → 存长期记忆，并从回复里删掉 */
+            if (!llm_ok) {
+                ESP_LOGW(TAG, "GPT 没回复");
+            } else {
+                /* 完整回复里提取 [记住]事实[/记住] → 存长期记忆 */
                 char *m1 = strstr(reply, "[记住]");
                 if (m1) {
                     char *m2 = strstr(m1, "[/记住]");
@@ -266,9 +287,8 @@ static void chat_task(void *arg)
                         *m2 = '\0';
                         char *fact = m1 + strlen("[记住]");
                         if (strlen(fact) > 0) {
-                            memory_append_user(fact);   /* 存 NVS（重启后用）*/
+                            memory_append_user(fact);
                             ESP_LOGI(TAG, "🧠 记住了: %s", fact);
-                            /* 刷新当前会话系统提示（不重启也立刻永久记住）*/
                             if (memory_get_user(user_info, sizeof(user_info))) {
                                 snprintf(sysprompt, sizeof(sysprompt),
                                     "%s\n已知主人信息：%s\n对话中自然地体现你认识主人。%s",
@@ -277,11 +297,7 @@ static void chat_task(void *arg)
                             }
                         }
                     }
-                    *m1 = '\0';   /* 删掉标记及之后，不显示给用户 */
                 }
-                ESP_LOGI(TAG, "🤖 AI: %s", reply);
-            } else {
-                ESP_LOGW(TAG, "GPT 没回复");
             }
 
             ESP_LOGI(TAG, "⏱  录音 %.1fs | STT %.1fs | GPT %.1fs\n",

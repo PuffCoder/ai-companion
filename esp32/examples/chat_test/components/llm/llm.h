@@ -23,6 +23,23 @@ void llm_init(const char *system_prompt);
 bool llm_chat(const char *api_key, const char *user_msg,
               char *out, int out_len);
 
+/* 流式回调：每收到一小段文字回调一次（delta 是增量片段）*/
+typedef void (*llm_stream_cb_t)(const char *delta, void *arg);
+
+/**
+ * @brief 流式对话：边生成边通过 on_delta 回调吐字，完整回复写入 out。
+ * @param api_key   OpenAI API Key
+ * @param user_msg  用户消息
+ * @param on_delta  每块增量文字的回调（可为 NULL）
+ * @param arg       传给回调的用户参数
+ * @param out       完整回复输出缓冲
+ * @param out_len   out 容量
+ * @return 成功返回 true
+ */
+bool llm_chat_stream(const char *api_key, const char *user_msg,
+                     llm_stream_cb_t on_delta, void *arg,
+                     char *out, int out_len);
+
 /**
  * @brief 更新系统提示（人设/记忆变化时调用），保留对话历史。
  */
