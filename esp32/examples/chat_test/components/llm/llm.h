@@ -24,6 +24,11 @@ bool llm_chat(const char *api_key, const char *user_msg,
               char *out, int out_len);
 
 /**
+ * @brief 更新系统提示（人设/记忆变化时调用），保留对话历史。
+ */
+void llm_set_system(const char *system_prompt);
+
+/**
  * @brief 清空对话历史（开启新话题）。
  */
 void llm_reset(void);

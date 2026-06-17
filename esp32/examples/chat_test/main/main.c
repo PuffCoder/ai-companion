@@ -142,10 +142,15 @@ static void chat_task(void *arg)
     char text[256], reply[256];
     const int silence_limit = SAMPLE_RATE * VAD_SILENCE_MS / 1000;
 
-    /* 系统提示 = 人设(从NVS) + 长期记忆(用户信息) */
+    /* 记忆规则：让 GPT 把值得长期记的事实用标记输出 */
+    #define MEMO_RULE "\n当主人透露值得长期记住的个人信息（姓名/喜好/" \
+        "重要的人或事）时，在回复最后另起一行输出 [记住]简短事实[/记住]，" \
+        "不要重复已知信息。"
+
+    /* 系统提示 = 人设(从NVS) + 长期记忆(用户信息) + 记忆规则 */
     char persona[PERSONA_MAX];
     char user_info[USER_MEMORY_MAX];
-    char sysprompt[PERSONA_MAX + USER_MEMORY_MAX + 128];
+    char sysprompt[PERSONA_MAX + USER_MEMORY_MAX + 256];
 
     if (!memory_get_persona(persona, sizeof(persona))) {
         snprintf(persona, sizeof(persona), "%s", PERSONA_DEFAULT);
@@ -154,11 +159,11 @@ static void chat_task(void *arg)
 
     if (memory_get_user(user_info, sizeof(user_info))) {
         snprintf(sysprompt, sizeof(sysprompt),
-                 "%s\n已知主人信息：%s\n对话中自然地体现你认识主人。",
-                 persona, user_info);
+                 "%s\n已知主人信息：%s\n对话中自然地体现你认识主人。%s",
+                 persona, user_info, MEMO_RULE);
         ESP_LOGI(TAG, "已加载记忆: %s", user_info);
     } else {
-        snprintf(sysprompt, sizeof(sysprompt), "%s", persona);
+        snprintf(sysprompt, sizeof(sysprompt), "%s%s", persona, MEMO_RULE);
     }
     llm_init(sysprompt);
 
@@ -251,8 +256,33 @@ static void chat_task(void *arg)
             int64_t t1 = esp_timer_get_time();
             bool llm_ok = llm_chat(OPENAI_API_KEY, text, reply, sizeof(reply));
             float llm_sec = (esp_timer_get_time() - t1) / 1e6f;
-            if (llm_ok) ESP_LOGI(TAG, "🤖 AI: %s", reply);
-            else        ESP_LOGW(TAG, "GPT 没回复");
+
+            if (llm_ok) {
+                /* 提取 [记住]事实[/记住] → 存长期记忆，并从回复里删掉 */
+                char *m1 = strstr(reply, "[记住]");
+                if (m1) {
+                    char *m2 = strstr(m1, "[/记住]");
+                    if (m2) {
+                        *m2 = '\0';
+                        char *fact = m1 + strlen("[记住]");
+                        if (strlen(fact) > 0) {
+                            memory_append_user(fact);   /* 存 NVS（重启后用）*/
+                            ESP_LOGI(TAG, "🧠 记住了: %s", fact);
+                            /* 刷新当前会话系统提示（不重启也立刻永久记住）*/
+                            if (memory_get_user(user_info, sizeof(user_info))) {
+                                snprintf(sysprompt, sizeof(sysprompt),
+                                    "%s\n已知主人信息：%s\n对话中自然地体现你认识主人。%s",
+                                    persona, user_info, MEMO_RULE);
+                                llm_set_system(sysprompt);
+                            }
+                        }
+                    }
+                    *m1 = '\0';   /* 删掉标记及之后，不显示给用户 */
+                }
+                ESP_LOGI(TAG, "🤖 AI: %s", reply);
+            } else {
+                ESP_LOGW(TAG, "GPT 没回复");
+            }
 
             ESP_LOGI(TAG, "⏱  录音 %.1fs | STT %.1fs | GPT %.1fs\n",
                      rec_sec, stt_sec, llm_sec);

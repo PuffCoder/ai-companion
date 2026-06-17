@@ -18,7 +18,7 @@ static const char *TAG = "llm";
 #define RESP_MAX      4096
 
 static cJSON *s_messages;     /* {role, content} 数组 */
-static char   s_system[256];
+static char   s_system[1280];   /* 容纳 人设+记忆+规则 */
 
 void llm_init(const char *system_prompt)
 {
@@ -33,6 +33,18 @@ void llm_init(const char *system_prompt)
     cJSON_AddStringToObject(sys, "role", "system");
     cJSON_AddStringToObject(sys, "content", s_system);
     cJSON_AddItemToArray(s_messages, sys);
+}
+
+void llm_set_system(const char *system_prompt)
+{
+    snprintf(s_system, sizeof(s_system), "%s", system_prompt);
+    if (!s_messages) { llm_init(system_prompt); return; }
+
+    /* 替换数组第 0 条（system 消息）的 content，保留其余对话历史 */
+    cJSON *sys = cJSON_GetArrayItem(s_messages, 0);
+    if (sys) {
+        cJSON_ReplaceItemInObject(sys, "content", cJSON_CreateString(s_system));
+    }
 }
 
 void llm_reset(void)

@@ -33,6 +33,11 @@ void memory_set_user(const char *info);
 bool memory_get_user(char *out, int out_len);
 
 /**
+ * @brief 追加一条事实到用户信息（合并存 flash，有上限保护）。
+ */
+void memory_append_user(const char *fact);
+
+/**
  * @brief 写入人设（覆盖，存 flash）。
  */
 void memory_set_persona(const char *persona);
