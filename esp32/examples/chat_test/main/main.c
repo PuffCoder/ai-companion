@@ -19,6 +19,7 @@
 #include "freertos/event_groups.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "esp_timer.h"
 #include "nvs_flash.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
@@ -41,8 +42,12 @@ static const char *TAG = "chat";
 #define INMP441_DIN   42
 #define SAMPLE_RATE   16000
 #define MIC_SHIFT     11
-#define REC_SECONDS   5
-#define REC_SAMPLES   (SAMPLE_RATE * REC_SECONDS)
+
+/* VAD 自动停录参数 */
+#define REC_MAX_SAMPLES  (SAMPLE_RATE * 8)   /* 最长 8 秒 */
+#define REC_MIN_SAMPLES  (SAMPLE_RATE * 1)   /* 最短 1 秒（防误触）*/
+#define VAD_SILENCE_MS   500                 /* 停嘴 500ms 算说完 */
+#define VOICE_THRESHOLD  300                 /* 平均音量低于此值=噪声，不发 Whisper */
 
 static i2s_chan_handle_t s_rx;
 
@@ -131,8 +136,9 @@ static void chat_task(void *arg)
     int16_t *fbuf = malloc(chunk * nch * sizeof(int16_t));
 
     /* 对话用缓冲（PSRAM）*/
-    int16_t *pcm = heap_caps_malloc(REC_SAMPLES * sizeof(int16_t), MALLOC_CAP_SPIRAM);
+    int16_t *pcm = heap_caps_malloc(REC_MAX_SAMPLES * sizeof(int16_t), MALLOC_CAP_SPIRAM);
     char text[256], reply[256];
+    const int silence_limit = SAMPLE_RATE * VAD_SILENCE_MS / 1000;
 
     llm_init(NULL);   /* 默认人设：小黄人 */
 
@@ -140,34 +146,89 @@ static void chat_task(void *arg)
     ESP_LOGI(TAG, "喊 \"Hi ESP\" 唤醒，然后说话\n");
 
     while (1) {
-        /* 1. 等唤醒词 */
+        /* ── 外层：等唤醒词 ────────────────────── */
         mic_read(fbuf, chunk * nch);
         afe->feed(afe_data, fbuf);
         afe_fetch_result_t *res = afe->fetch(afe_data);
         if (!res || res->wakeup_state != WAKENET_DETECTED) continue;
 
-        ESP_LOGI(TAG, "🔔 已唤醒！请说话（%d秒）...", REC_SECONDS);
+        ESP_LOGI(TAG, "🔔 已唤醒！进入连续对话（说\"再见\"或不说话结束）");
 
-        /* 2. 录音 */
-        mic_read(pcm, REC_SAMPLES);
-        ESP_LOGI(TAG, "识别中...");
+        /* ── 内层：连续对话 ────────────────────── */
+        while (1) {
+            ESP_LOGI(TAG, "🎙  请说...");
 
-        /* 3. STT */
-        if (!stt_transcribe_pcm(pcm, REC_SAMPLES, SAMPLE_RATE,
-                                OPENAI_API_KEY, "zh", text, sizeof(text))
-            || strlen(text) == 0) {
-            ESP_LOGW(TAG, "没听清，再喊 Hi ESP 试试\n");
-            continue;
+            /* 录音（VAD 自动停）*/
+            int rec = 0, silence = 0;
+            bool started = false;
+            while (rec < REC_MAX_SAMPLES) {
+                mic_read(fbuf, chunk * nch);
+                afe->feed(afe_data, fbuf);
+                afe_fetch_result_t *r = afe->fetch(afe_data);
+                if (!r || r->data_size <= 0) continue;
+
+                int n = r->data_size / sizeof(int16_t);
+                if (rec + n > REC_MAX_SAMPLES) n = REC_MAX_SAMPLES - rec;
+                memcpy(pcm + rec, r->data, n * sizeof(int16_t));
+                rec += n;
+
+                if (r->vad_state == VAD_SPEECH) {
+                    started = true;
+                    silence = 0;
+                } else if (started) {
+                    silence += n;
+                }
+                if (started && silence >= silence_limit && rec >= REC_MIN_SAMPLES) break;
+            }
+
+            /* 一直没说话 → 结束对话，回到等唤醒 */
+            if (!started) {
+                ESP_LOGI(TAG, "（没听到说话，对话结束，喊 Hi ESP 重新开始）\n");
+                break;
+            }
+
+            /* 音量门限：算平均振幅，太低=噪声/静音，跳过不发 Whisper（防幻觉）*/
+            int64_t sum = 0;
+            for (int i = 0; i < rec; i++) sum += (pcm[i] < 0 ? -pcm[i] : pcm[i]);
+            int avg_amp = rec ? (int)(sum / rec) : 0;
+
+            float rec_sec = (float)rec / SAMPLE_RATE;
+            ESP_LOGI(TAG, "录音 %.1f秒 (音量%d)，识别中...", rec_sec, avg_amp);
+
+            if (avg_amp < VOICE_THRESHOLD) {
+                ESP_LOGW(TAG, "音量太低（噪声/没说话），跳过\n");
+                continue;
+            }
+
+            /* STT */
+            int64_t t0 = esp_timer_get_time();
+            bool stt_ok = stt_transcribe_pcm(pcm, rec, SAMPLE_RATE,
+                                             OPENAI_API_KEY, "zh", text, sizeof(text));
+            float stt_sec = (esp_timer_get_time() - t0) / 1e6f;
+            if (!stt_ok || strlen(text) == 0) {
+                ESP_LOGW(TAG, "没听清，再说一遍");
+                continue;
+            }
+            ESP_LOGI(TAG, "👤 你: %s", text);
+
+            /* 退出关键词（精确匹配整句，避免句中含"再见"误退出）*/
+            if (strcmp(text, "再见") == 0 || strcmp(text, "再见。") == 0 ||
+                strcmp(text, "拜拜") == 0 || strcmp(text, "拜拜。") == 0) {
+                ESP_LOGI(TAG, "👋 再见！（喊 Hi ESP 重新开始）\n");
+                break;
+            }
+
+            /* GPT */
+            int64_t t1 = esp_timer_get_time();
+            bool llm_ok = llm_chat(OPENAI_API_KEY, text, reply, sizeof(reply));
+            float llm_sec = (esp_timer_get_time() - t1) / 1e6f;
+            if (llm_ok) ESP_LOGI(TAG, "🤖 AI: %s", reply);
+            else        ESP_LOGW(TAG, "GPT 没回复");
+
+            ESP_LOGI(TAG, "⏱  录音 %.1fs | STT %.1fs | GPT %.1fs\n",
+                     rec_sec, stt_sec, llm_sec);
+            /* 回到内层循环开头，直接听下一句（不用再喊 Hi ESP）*/
         }
-        ESP_LOGI(TAG, "👤 你: %s", text);
-
-        /* 4. GPT */
-        if (llm_chat(OPENAI_API_KEY, text, reply, sizeof(reply))) {
-            ESP_LOGI(TAG, "🤖 AI: %s\n", reply);
-        } else {
-            ESP_LOGW(TAG, "GPT 没回复\n");
-        }
-        /* 5.（无扬声器，回复已打印。以后这里接 TTS 播放）*/
     }
 }
 
