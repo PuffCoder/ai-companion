@@ -32,9 +32,11 @@
 
 #include "stt.h"
 #include "llm.h"
+#include "memory.h"
 #include "config.h"
 
 static const char *TAG = "chat";
+/* 人设模板在 memory.h（PERSONA_MINION/BUTLER/FRIEND），存 NVS */
 
 /* ── INMP441 ─────────────────────────────────── */
 #define INMP441_BCLK  1
@@ -140,7 +142,25 @@ static void chat_task(void *arg)
     char text[256], reply[256];
     const int silence_limit = SAMPLE_RATE * VAD_SILENCE_MS / 1000;
 
-    llm_init(NULL);   /* 默认人设：小黄人 */
+    /* 系统提示 = 人设(从NVS) + 长期记忆(用户信息) */
+    char persona[PERSONA_MAX];
+    char user_info[USER_MEMORY_MAX];
+    char sysprompt[PERSONA_MAX + USER_MEMORY_MAX + 128];
+
+    if (!memory_get_persona(persona, sizeof(persona))) {
+        snprintf(persona, sizeof(persona), "%s", PERSONA_DEFAULT);
+    }
+    ESP_LOGI(TAG, "人设: %s", persona);
+
+    if (memory_get_user(user_info, sizeof(user_info))) {
+        snprintf(sysprompt, sizeof(sysprompt),
+                 "%s\n已知主人信息：%s\n对话中自然地体现你认识主人。",
+                 persona, user_info);
+        ESP_LOGI(TAG, "已加载记忆: %s", user_info);
+    } else {
+        snprintf(sysprompt, sizeof(sysprompt), "%s", persona);
+    }
+    llm_init(sysprompt);
 
     ESP_LOGI(TAG, "=== 对话就绪 ===");
     ESP_LOGI(TAG, "喊 \"Hi ESP\" 唤醒，然后说话\n");
@@ -155,6 +175,7 @@ static void chat_task(void *arg)
         ESP_LOGI(TAG, "🔔 已唤醒！进入连续对话（说\"再见\"或不说话结束）");
 
         /* ── 内层：连续对话 ────────────────────── */
+        int idle = 0;                  /* 连续没说话次数 */
         while (1) {
             ESP_LOGI(TAG, "🎙  请说...");
 
@@ -181,10 +202,13 @@ static void chat_task(void *arg)
                 if (started && silence >= silence_limit && rec >= REC_MIN_SAMPLES) break;
             }
 
-            /* 一直没说话 → 结束对话，回到等唤醒 */
+            /* 没开口 → 计数，连续 3 次结束对话 */
             if (!started) {
-                ESP_LOGI(TAG, "（没听到说话，对话结束，喊 Hi ESP 重新开始）\n");
-                break;
+                if (++idle >= 3) {
+                    ESP_LOGI(TAG, "（连续没说话，对话结束，喊 Hi ESP 重新开始）\n");
+                    break;
+                }
+                continue;
             }
 
             /* 音量门限：算平均振幅，太低=噪声/静音，跳过不发 Whisper（防幻觉）*/
@@ -196,9 +220,14 @@ static void chat_task(void *arg)
             ESP_LOGI(TAG, "录音 %.1f秒 (音量%d)，识别中...", rec_sec, avg_amp);
 
             if (avg_amp < VOICE_THRESHOLD) {
-                ESP_LOGW(TAG, "音量太低（噪声/没说话），跳过\n");
+                ESP_LOGW(TAG, "音量太低（噪声/没说话），跳过");
+                if (++idle >= 3) {
+                    ESP_LOGI(TAG, "（连续没说话，对话结束，喊 Hi ESP 重新开始）\n");
+                    break;
+                }
                 continue;
             }
+            idle = 0;   /* 有效说话，计数清零 */
 
             /* STT */
             int64_t t0 = esp_timer_get_time();
@@ -234,10 +263,20 @@ static void chat_task(void *arg)
 
 void app_main(void)
 {
-    esp_err_t r = nvs_flash_init();
-    if (r == ESP_ERR_NVS_NO_FREE_PAGES || r == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        nvs_flash_erase(); nvs_flash_init();
+    memory_init();   /* 初始化 NVS（长期记忆）*/
+
+    /* 首次开机预填（已存过就不覆盖，测试持久化）*/
+    char tmp[USER_MEMORY_MAX];
+    if (!memory_get_user(tmp, sizeof(tmp))) {
+        memory_set_user("主人叫David，28岁，住Lower Hutt，"
+                        "职业是工程师，喜欢滑雪和骑摩托车");
+        ESP_LOGI(TAG, "首次运行，已预填主人信息");
     }
+    if (!memory_get_persona(tmp, sizeof(tmp))) {
+        memory_set_persona(PERSONA_DEFAULT);
+        ESP_LOGI(TAG, "首次运行，已预填默认人设");
+    }
+
     wifi_init();
     mic_init();
     xTaskCreate(chat_task, "chat_task", 16384, NULL, 5, NULL);
