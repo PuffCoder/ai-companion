@@ -20,7 +20,33 @@
 #define BSP_LED_GPIO          38
 #define BSP_LED_COUNT         1
 
-/* UART */
+/* Display (ST7789 SPI) */
+#define BSP_DISPLAY_SCLK     12
+#define BSP_DISPLAY_MOSI     11
+#define BSP_DISPLAY_CS       10
+#define BSP_DISPLAY_DC        9
+#define BSP_DISPLAY_RST       8
+#define BSP_DISPLAY_BL       46
+#define BSP_DISPLAY_WIDTH   170
+#define BSP_DISPLAY_HEIGHT  320
+
+/* Servo (MG90S — PWM via LEDC) */
+#define BSP_SERVO_GPIO       14
+
+/* AS5600 magnetic encoder (I2C master)
+ * 注意：和显示屏 RST(8)/DC(9) 共脚——同时用屏时需改脚。测编码器时屏不接。*/
+#define BSP_AS5600_I2C_SDA    8
+#define BSP_AS5600_I2C_SCL    9
+#define BSP_AS5600_I2C_PORT   0
+#define BSP_AS5600_I2C_HZ  400000
+
+/* Microphone (INMP441 — I2S input)
+ * 注意：GND 和 L/R 用右侧 GND（GPIO19 下方），见 docs/wiring.md */
+#define BSP_MIC_I2S_BCLK      1   /* SCK */
+#define BSP_MIC_I2S_WS        2   /* WS  */
+#define BSP_MIC_I2S_DIN      42   /* SD  */
+
+/* UART (K230 bridge) */
 // #define BSP_UART_TX_GPIO   17
 // #define BSP_UART_RX_GPIO   18
 
