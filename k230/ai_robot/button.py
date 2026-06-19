@@ -1,6 +1,6 @@
 from machine import Pin
 import time
-from config import BTN_GPIO
+from board import BTN_GPIO   # 硬件引脚统一在 board.py
 
 _btn = Pin(BTN_GPIO, Pin.IN, Pin.PULL_DOWN)
 

@@ -26,6 +26,12 @@ def transcribe(path="/sdcard/rec.wav"):
         },
         data=body
     )
+
+    if resp.status_code != 200:
+        print("STT 失败:", resp.status_code, resp.text)
+        resp.close()
+        return ""
+
     text = ujson.loads(resp.text).get("text", "")
     resp.close()
     print("你说:", text)
