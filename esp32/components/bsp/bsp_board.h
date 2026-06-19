@@ -46,9 +46,13 @@
 #define BSP_MIC_I2S_WS        2   /* WS  */
 #define BSP_MIC_I2S_DIN      42   /* SD  */
 
-/* UART (K230 bridge) */
-// #define BSP_UART_TX_GPIO   17
-// #define BSP_UART_RX_GPIO   18
+/* UART (K230 bridge) — UART1, 独立于 USB 控制台(UART0)
+ * 交叉接线：ESP32 TX → K230 RX，ESP32 RX → K230 TX，共 GND。
+ * 两端都是 3.3V 逻辑，无需电平转换。*/
+#define BSP_UART_TX_GPIO     17
+#define BSP_UART_RX_GPIO     18
+#define BSP_UART_PORT         1
+#define BSP_UART_BAUD    115200
 
 /* ======================================================
  * ESP32-C6 Configuration
