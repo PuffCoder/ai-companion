@@ -1,38 +1,39 @@
+/*
+ * screen_demo — 像素风表情演示（ST7789）
+ *
+ * 屏 3.3V。接线（display_driver.h）：
+ *   VCC→3.3V GND→GND
+ *   SCLK→GPIO12 MOSI→GPIO11 CS→GPIO10 DC→GPIO9 RST→GPIO8 BLK→GPIO46
+ *
+ * 依次展示 6 个表情，每个眨两下眼。
+ */
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
-#include "display_driver.h"
+#include "emotion_engine.h"
 
 static const char *TAG = "screen_demo";
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "Screen demo start");
+    ESP_LOGI(TAG, "emotion demo start");
+    emotion_engine_init();
 
-    display_driver_init();
+    const emotion_t seq[] = {
+        EMO_IDLE, EMO_LISTENING, EMO_THINKING,
+        EMO_HAPPY, EMO_SAD, EMO_SURPRISED, EMO_ANGRY,
+    };
+    const char *name[] = {
+        "IDLE", "LISTENING", "THINKING", "HAPPY", "SAD", "SURPRISED", "ANGRY",
+    };
 
-    ESP_LOGI(TAG, "Filling RED");
-    display_fill(COLOR_RED);
-    vTaskDelay(pdMS_TO_TICKS(2000));
-
-    ESP_LOGI(TAG, "Filling GREEN");
-    display_fill(COLOR_GREEN);
-    vTaskDelay(pdMS_TO_TICKS(2000));
-
-    ESP_LOGI(TAG, "Filling BLUE");
-    display_fill(COLOR_BLUE);
-    vTaskDelay(pdMS_TO_TICKS(2000));
-
-    ESP_LOGI(TAG, "Filling WHITE");
-    display_fill(COLOR_WHITE);
-    vTaskDelay(pdMS_TO_TICKS(2000));
-
-    // Loop forever cycling colors
-    const uint16_t colors[] = { COLOR_RED, COLOR_GREEN, COLOR_BLUE, COLOR_WHITE, COLOR_BLACK };
-    int idx = 0;
     while (1) {
-        display_fill(colors[idx]);
-        idx = (idx + 1) % 5;
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        for (int i = 0; i < 7; i++) {
+            ESP_LOGI(TAG, "%s", name[i]);
+            emotion_set(seq[i]);
+            vTaskDelay(pdMS_TO_TICKS(3000));
+            emotion_blink();
+            vTaskDelay(pdMS_TO_TICKS(3000));
+        }
     }
 }

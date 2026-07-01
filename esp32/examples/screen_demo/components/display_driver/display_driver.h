@@ -7,8 +7,9 @@
 /* ======================
  * Display Configuration
  * ====================== */
-#define DISPLAY_WIDTH       170
-#define DISPLAY_HEIGHT      320
+/* 横屏 landscape：320 宽 x 170 高（竖屏是 170x320，见 MADCTL/offset）*/
+#define DISPLAY_WIDTH       320
+#define DISPLAY_HEIGHT      170
 
 /* SPI Pins */
 #define DISPLAY_PIN_SCLK    12
@@ -56,6 +57,12 @@ void display_fill_rect(uint16_t x, uint16_t y,
  * @brief Draw a single pixel
  */
 void display_draw_pixel(uint16_t x, uint16_t y, uint16_t color);
+
+/**
+ * @brief Blit a pre-rendered RGB565 buffer to a region (one SPI transfer, no flicker).
+ *        pixels 必须是已字节交换(big-endian)的 RGB565，长度 = w*h。
+ */
+void display_blit(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint16_t *pixels);
 
 /**
  * @brief Set backlight on/off

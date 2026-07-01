@@ -61,7 +61,7 @@ static void lcd_data_byte(uint8_t data)
 
 static void set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
 {
-    x0 += 35; x1 += 35;  // 170x320 column offset
+    y0 += 35; y1 += 35;  // 横屏：170 那一维在 Y/行，偏移 35（竖屏时是 x0/x1 +=35）
 
     uint8_t caset[] = { x0 >> 8, x0 & 0xFF, x1 >> 8, x1 & 0xFF };
     uint8_t raset[] = { y0 >> 8, y0 & 0xFF, y1 >> 8, y1 & 0xFF };
@@ -91,9 +91,12 @@ static void st7789_init_sequence(void)
     lcd_cmd(ST7789_SLPOUT);
     vTaskDelay(pdMS_TO_TICKS(120));
 
-    // Memory data access control
+    // Memory data access control（方向）
+    //  竖屏 170x320: 0x00 / 0xC0（翻转）
+    //  横屏 320x170: 0x60 / 0xA0（翻转）  ← 当前用横屏
+    //  如果镜像/上下颠倒，就在 0x60/0xA0/0xC0/0xE0 之间换
     lcd_cmd(ST7789_MADCTL);
-    lcd_data_byte(0x00);
+    lcd_data_byte(0xA0);
 
     // Color format: 16-bit RGB565
     lcd_cmd(ST7789_COLMOD);
@@ -250,6 +253,17 @@ void display_fill_rect(uint16_t x, uint16_t y,
 void display_draw_pixel(uint16_t x, uint16_t y, uint16_t color)
 {
     display_fill_rect(x, y, 1, 1, color);
+}
+
+void display_blit(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint16_t *pixels)
+{
+    set_window(x, y, x + w - 1, y + h - 1);
+    spi_transaction_t t = {
+        .length    = (size_t)w * h * 16,
+        .tx_buffer = pixels,
+        .user      = (void *)1,   // DC=1: data
+    };
+    ESP_ERROR_CHECK(spi_device_polling_transmit(s_spi, &t));
 }
 
 void display_set_backlight(bool on)
