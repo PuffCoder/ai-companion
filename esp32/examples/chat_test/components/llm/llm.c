@@ -18,7 +18,7 @@ static const char *TAG = "llm";
 #define RESP_MAX      4096
 
 static cJSON *s_messages;     /* {role, content} 数组 */
-static char   s_system[1280];   /* 容纳 人设+记忆+规则 */
+static char   s_system[1536];   /* 容纳 人设+记忆+规则（英文规则较长，1280→1536）*/
 
 void llm_init(const char *system_prompt)
 {
@@ -27,7 +27,7 @@ void llm_init(const char *system_prompt)
 
     snprintf(s_system, sizeof(s_system), "%s",
         system_prompt ? system_prompt
-                      : "你是AI机器人小黄人，性格活泼可爱，回答简短（30字内）。");
+                      : "You are a Minion AI robot, cheerful and cute, keep answers short (under 30 words). Always reply in English.");
 
     cJSON *sys = cJSON_CreateObject();
     cJSON_AddStringToObject(sys, "role", "system");

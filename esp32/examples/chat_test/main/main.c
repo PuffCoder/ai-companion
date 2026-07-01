@@ -13,6 +13,7 @@
  */
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>   /* strcasecmp */
 #include <stdlib.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -158,32 +159,33 @@ static void chat_task(void *arg)
     const int silence_limit = SAMPLE_RATE * VAD_SILENCE_MS / 1000;
 
     /* 记忆规则：让 GPT 把值得长期记的事实用标记输出 */
-    #define MEMO_RULE "\n当主人透露值得长期记住的个人信息（姓名/喜好/" \
-        "重要的人或事）时，在回复最后另起一行输出 [记住]简短事实[/记住]，" \
-        "不要重复已知信息。"
+    #define MEMO_RULE "\nWhen the user shares personal info worth remembering " \
+        "long-term (name / preferences / important people or things), output it " \
+        "on a new line at the very end as [remember]short fact[/remember]. " \
+        "Do not repeat info you already know."
 
     /* 系统提示 = 人设(从NVS) + 长期记忆(用户信息) + 记忆规则 */
     char persona[PERSONA_MAX];
     char user_info[USER_MEMORY_MAX];
-    char sysprompt[PERSONA_MAX + USER_MEMORY_MAX + 256];
+    char sysprompt[PERSONA_MAX + USER_MEMORY_MAX + 512];  /* +512: 容纳较长的英文记忆规则 */
 
     if (!memory_get_persona(persona, sizeof(persona))) {
         snprintf(persona, sizeof(persona), "%s", PERSONA_DEFAULT);
     }
-    ESP_LOGI(TAG, "人设: %s", persona);
+    ESP_LOGI(TAG, "Persona: %s", persona);
 
     if (memory_get_user(user_info, sizeof(user_info))) {
         snprintf(sysprompt, sizeof(sysprompt),
-                 "%s\n已知主人信息：%s\n对话中自然地体现你认识主人。%s",
+                 "%s\nKnown about the user: %s\nNaturally show that you know them.%s",
                  persona, user_info, MEMO_RULE);
-        ESP_LOGI(TAG, "已加载记忆: %s", user_info);
+        ESP_LOGI(TAG, "Loaded memory: %s", user_info);
     } else {
         snprintf(sysprompt, sizeof(sysprompt), "%s%s", persona, MEMO_RULE);
     }
     llm_init(sysprompt);
 
-    ESP_LOGI(TAG, "=== 对话就绪 ===");
-    ESP_LOGI(TAG, "喊 \"Hi ESP\" 唤醒，然后说话\n");
+    ESP_LOGI(TAG, "=== Chat ready ===");
+    ESP_LOGI(TAG, "Say \"Hi ESP\" to wake, then talk\n");
 
     while (1) {
         /* ── 外层：等唤醒词 ────────────────────── */
@@ -192,12 +194,12 @@ static void chat_task(void *arg)
         afe_fetch_result_t *res = afe->fetch(afe_data);
         if (!res || res->wakeup_state != WAKENET_DETECTED) continue;
 
-        ESP_LOGI(TAG, "🔔 已唤醒！进入连续对话（说\"再见\"或不说话结束）");
+        ESP_LOGI(TAG, "🔔 Woke up! Continuous chat (say 'bye' or stay silent to end)");
 
         /* ── 内层：连续对话 ────────────────────── */
         int idle = 0;                  /* 连续没说话次数 */
         while (1) {
-            ESP_LOGI(TAG, "🎙  请说...");
+            ESP_LOGI(TAG, "🎙  Speak...");
 
             /* 录音（VAD 自动停）*/
             int rec = 0, silence = 0;
@@ -225,7 +227,7 @@ static void chat_task(void *arg)
             /* 没开口 → 计数，连续 3 次结束对话 */
             if (!started) {
                 if (++idle >= 3) {
-                    ESP_LOGI(TAG, "（连续没说话，对话结束，喊 Hi ESP 重新开始）\n");
+                    ESP_LOGI(TAG, "(No speech, chat ended. Say Hi ESP to start again)\n");
                     break;
                 }
                 continue;
@@ -237,12 +239,12 @@ static void chat_task(void *arg)
             int avg_amp = rec ? (int)(sum / rec) : 0;
 
             float rec_sec = (float)rec / SAMPLE_RATE;
-            ESP_LOGI(TAG, "录音 %.1f秒 (音量%d)，识别中...", rec_sec, avg_amp);
+            ESP_LOGI(TAG, "Recorded %.1fs (vol %d), transcribing...", rec_sec, avg_amp);
 
             if (avg_amp < VOICE_THRESHOLD) {
-                ESP_LOGW(TAG, "音量太低（噪声/没说话），跳过");
+                ESP_LOGW(TAG, "Volume too low (noise/silence), skipped");
                 if (++idle >= 3) {
-                    ESP_LOGI(TAG, "（连续没说话，对话结束，喊 Hi ESP 重新开始）\n");
+                    ESP_LOGI(TAG, "(No speech, chat ended. Say Hi ESP to start again)\n");
                     break;
                 }
                 continue;
@@ -252,18 +254,19 @@ static void chat_task(void *arg)
             /* STT */
             int64_t t0 = esp_timer_get_time();
             bool stt_ok = stt_transcribe_pcm(pcm, rec, SAMPLE_RATE,
-                                             OPENAI_API_KEY, "zh", text, sizeof(text));
+                                             OPENAI_API_KEY, "en", text, sizeof(text));
             float stt_sec = (esp_timer_get_time() - t0) / 1e6f;
             if (!stt_ok || strlen(text) == 0) {
-                ESP_LOGW(TAG, "没听清，再说一遍");
+                ESP_LOGW(TAG, "Didn't catch that, please repeat");
                 continue;
             }
-            ESP_LOGI(TAG, "👤 你: %s", text);
+            ESP_LOGI(TAG, "👤 You: %s", text);
 
-            /* 退出关键词（精确匹配整句，避免句中含"再见"误退出）*/
-            if (strcmp(text, "再见") == 0 || strcmp(text, "再见。") == 0 ||
-                strcmp(text, "拜拜") == 0 || strcmp(text, "拜拜。") == 0) {
-                ESP_LOGI(TAG, "👋 再见！（喊 Hi ESP 重新开始）\n");
+            /* Exit keywords (whole-sentence match to avoid mid-sentence false exit) */
+            if (strcasecmp(text, "bye") == 0 || strcasecmp(text, "bye.") == 0 ||
+                strcasecmp(text, "goodbye") == 0 || strcasecmp(text, "goodbye.") == 0 ||
+                strcasecmp(text, "bye bye") == 0 || strcasecmp(text, "bye-bye.") == 0) {
+                ESP_LOGI(TAG, "👋 Bye! (say Hi ESP to start again)\n");
                 break;
             }
 
@@ -277,21 +280,21 @@ static void chat_task(void *arg)
             float llm_sec = (esp_timer_get_time() - t1) / 1e6f;
 
             if (!llm_ok) {
-                ESP_LOGW(TAG, "GPT 没回复");
+                ESP_LOGW(TAG, "No reply from GPT");
             } else {
-                /* 完整回复里提取 [记住]事实[/记住] → 存长期记忆 */
-                char *m1 = strstr(reply, "[记住]");
+                /* Extract [remember]fact[/remember] → save to long-term memory */
+                char *m1 = strstr(reply, "[remember]");
                 if (m1) {
-                    char *m2 = strstr(m1, "[/记住]");
+                    char *m2 = strstr(m1, "[/remember]");
                     if (m2) {
                         *m2 = '\0';
-                        char *fact = m1 + strlen("[记住]");
+                        char *fact = m1 + strlen("[remember]");
                         if (strlen(fact) > 0) {
                             memory_append_user(fact);
-                            ESP_LOGI(TAG, "🧠 记住了: %s", fact);
+                            ESP_LOGI(TAG, "🧠 Remembered: %s", fact);
                             if (memory_get_user(user_info, sizeof(user_info))) {
                                 snprintf(sysprompt, sizeof(sysprompt),
-                                    "%s\n已知主人信息：%s\n对话中自然地体现你认识主人。%s",
+                                    "%s\nKnown about the user: %s\nNaturally show that you know them.%s",
                                     persona, user_info, MEMO_RULE);
                                 llm_set_system(sysprompt);
                             }
@@ -300,7 +303,7 @@ static void chat_task(void *arg)
                 }
             }
 
-            ESP_LOGI(TAG, "⏱  录音 %.1fs | STT %.1fs | GPT %.1fs\n",
+            ESP_LOGI(TAG, "⏱  Rec %.1fs | STT %.1fs | GPT %.1fs\n",
                      rec_sec, stt_sec, llm_sec);
             /* 回到内层循环开头，直接听下一句（不用再喊 Hi ESP）*/
         }
@@ -314,13 +317,13 @@ void app_main(void)
     /* 首次开机预填（已存过就不覆盖，测试持久化）*/
     char tmp[USER_MEMORY_MAX];
     if (!memory_get_user(tmp, sizeof(tmp))) {
-        memory_set_user("主人叫David，28岁，住Lower Hutt，"
-                        "职业是工程师，喜欢滑雪和骑摩托车");
-        ESP_LOGI(TAG, "首次运行，已预填主人信息");
+        memory_set_user("The user's name is David, 28, lives in Lower Hutt, "
+                        "works as an engineer, enjoys skiing and riding motorcycles.");
+        ESP_LOGI(TAG, "First run: preloaded user info");
     }
     if (!memory_get_persona(tmp, sizeof(tmp))) {
         memory_set_persona(PERSONA_DEFAULT);
-        ESP_LOGI(TAG, "首次运行，已预填默认人设");
+        ESP_LOGI(TAG, "First run: preloaded default persona");
     }
 
     wifi_init();
