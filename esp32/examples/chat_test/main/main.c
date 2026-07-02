@@ -3,7 +3,7 @@
  *
  *   喊 "Hi ESP" → 录音5秒 → STT识别 → GPT回复 → 串口打印
  *
- * 接线：INMP441  VDD→3.3V GND→GND L/R→GND SCK→GPIO1 WS→GPIO2 SD→GPIO42
+ * 接线：INMP441  VDD→3.3V GND→GND L/R→GPIO21(软件拉低) SCK→GPIO1 WS→GPIO2 SD→GPIO42
  *
  * 准备：
  *   - menuconfig 选 Hi ESP (wn9_hiesp)
@@ -26,6 +26,7 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "driver/i2s_std.h"
+#include "driver/gpio.h"
 
 #include "model_path.h"
 #include "esp_afe_sr_models.h"
@@ -43,6 +44,7 @@ static const char *TAG = "chat";
 #define INMP441_BCLK  1
 #define INMP441_WS    2
 #define INMP441_DIN   42
+#define INMP441_LR    21    /* L/R → 软件拉低=左声道（省一个 GND 脚）*/
 #define SAMPLE_RATE   16000
 #define MIC_SHIFT     11
 
@@ -90,6 +92,11 @@ static void wifi_init(void)
 /* ── I2S 麦克风 ──────────────────────────────── */
 static void mic_init(void)
 {
+    /* L/R 用 GPIO 输出 0 选左声道（代替接 GND，省一个地脚）*/
+    gpio_config_t lr = { .pin_bit_mask = 1ULL << INMP441_LR, .mode = GPIO_MODE_OUTPUT };
+    ESP_ERROR_CHECK(gpio_config(&lr));
+    gpio_set_level(INMP441_LR, 0);
+
     i2s_chan_config_t cc = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
     ESP_ERROR_CHECK(i2s_new_channel(&cc, NULL, &s_rx));
     i2s_std_config_t sc = {

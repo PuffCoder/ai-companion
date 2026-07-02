@@ -11,13 +11,13 @@
 #define DISPLAY_WIDTH       320
 #define DISPLAY_HEIGHT      170
 
-/* SPI Pins */
-#define DISPLAY_PIN_SCLK    12
-#define DISPLAY_PIN_MOSI    11
-#define DISPLAY_PIN_CS      10
-#define DISPLAY_PIN_DC       9
-#define DISPLAY_PIN_RST      8
-#define DISPLAY_PIN_BL      46
+/* SPI Pins — 按屏模块脚序 SCL SDA RES DC CS BLK 顺接 GPIO 4 5 6 7 15 16 */
+#define DISPLAY_PIN_SCLK     4   /* SCL */
+#define DISPLAY_PIN_MOSI     5   /* SDA */
+#define DISPLAY_PIN_RST      6   /* RES */
+#define DISPLAY_PIN_DC       7   /* DC  */
+#define DISPLAY_PIN_CS      15   /* CS  */
+#define DISPLAY_PIN_BL      16   /* BLK */
 
 /* SPI Clock Speed */
 #define DISPLAY_SPI_FREQ_HZ (40 * 1000 * 1000)  // 40 MHz

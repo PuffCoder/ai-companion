@@ -17,6 +17,7 @@ static const char *TAG = "wifi_manager";
 
 /* WiFi connection flag */
 static bool s_wifi_connected = false;
+static char s_ip_str[16] = "---";
 
 /* WiFi event handler */
 static void wifi_event_handler(
@@ -41,10 +42,10 @@ static void wifi_event_handler(
             (ip_event_got_ip_t *) event_data;
 
         s_wifi_connected = true;
+        snprintf(s_ip_str, sizeof(s_ip_str), IPSTR,
+                 IP2STR(&event->ip_info.ip));
 
-        ESP_LOGI(TAG,
-                "Connected. IP Address  " IPSTR, 
-                IP2STR(&event->ip_info.ip));
+        ESP_LOGI(TAG, "Connected. IP: %s", s_ip_str);
     }
     
     /* WiFi disconnected */
@@ -133,4 +134,12 @@ void wifi_manager_init(void)
 bool wifi_manager_is_connected(void)
 {
     return s_wifi_connected;
+}
+
+/* Get IP address string */
+bool wifi_manager_get_ip(char *buf, size_t len)
+{
+    if (!s_wifi_connected) return false;
+    snprintf(buf, len, "%s", s_ip_str);
+    return true;
 }
