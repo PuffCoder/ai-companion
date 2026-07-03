@@ -1,0 +1,38 @@
+{
+  "configurations": [
+    {
+      "name": "windows-gcc-x64",
+      "includePath": [
+        "${workspaceFolder}/**"
+      ],
+      "compilerPath": "C:/msys64/mingw64/bin/gcc.exe",
+      "cStandard": "${default}",
+      "cppStandard": "${default}",
+      "intelliSenseMode": "windows-gcc-x64",
+      "compilerArgs": [],
+      "defines": [
+        "ESP_PLATFORM",
+        "IDF_VER=\"v6.0.1\"",
+        "CONFIG_IDF_TARGET_ESP32S3=1"
+      ]
+    },
+    {
+      "name": "ESP32-C6",
+      "includePath": [
+        "${workspaceFolder}/**",
+        "C:/esp/v6.0.1/esp-idf/components/**"
+      ],
+      "compilerPath": "C:/Espressif/tools/tools/riscv32-esp-elf/esp-15.2.0_20251204/riscv32-esp-elf/bin/riscv32-esp-elf-gcc.exe",
+      "cStandard": "c17",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "gcc-arm",
+      "compilerArgs": [],
+      "defines": [
+        "ESP_PLATFORM",
+        "IDF_VER=\"v6.0.1\"",
+        "CONFIG_IDF_TARGET_ESP32C6=1"
+      ]
+    }
+  ],
+  "version": 4
+}

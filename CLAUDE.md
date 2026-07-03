@@ -1,5 +1,10 @@
 # CLAUDE.md — AI Companion Robot
 
+## 🔒 SECRETS RULE (strict)
+- NEVER read files containing credentials: `config.h`, `config.py`, `sdkconfig.defaults.local`, any file with WiFi SSID/password or API keys.
+- NEVER print, echo, or log WiFi credentials or API keys.
+- The USER fills in all credentials themselves. Claude only touches the surrounding code (buffer sizes, header construction, etc.), never the secret values.
+
 ## Project Overview
 ESP32-C6 (prototype) → ESP32-S3 + K230-CanMV (production) AI companion robot.
 Language: C with ESP-IDF v5.x + FreeRTOS.
@@ -78,4 +83,4 @@ idf.py -T tests/integration flash     # on-target tests
 | lcd_driver    | Not started | 170x320 ISP |
 | servo_driver  | Not started | MG90S |
 | emotion_engine| Not started | State machine → LED/servo/LCD |
-| uart_bridge   | Not started | K230 ↔ ESP32-S3 JSON protocol |
+| uart_bridge   | Done        | UART1 GPIO17/18 ↔ K230 UART1 GPIO3/4, NDJSON; bidirectional HW verified |

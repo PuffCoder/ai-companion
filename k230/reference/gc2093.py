@@ -6,7 +6,7 @@ pl = PipeLine(
     display_mode="virt",
     display_size=[640, 480]
 )
-pl.create(sensor_id=1)   # CSI1
+pl.create(sensor_id=2)   # CSI1
 
 print("摄像头启动，Frame Buffer 应该有画面")
 
