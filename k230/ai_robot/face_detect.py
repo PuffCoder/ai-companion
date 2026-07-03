@@ -15,7 +15,7 @@ from libs.PipeLine import PipeLine
 from libs.AIBase import AIBase
 from libs.AI2D import Ai2d
 from libs.Utils import *
-import ujson, gc, math
+import ujson, gc, math, time
 from media.media import *
 import nncase_runtime as nn
 import ulab.numpy as np
@@ -86,11 +86,19 @@ if __name__ == "__main__":
     link = UartLink()
     print("人脸检测就绪，UART 已连")
 
+    last_send = time.ticks_ms()
+    SEND_MS = 33                  # UART 限速 ~30Hz：跟随丝滑（ESP32 UART 优先级已降低，不抢音频）
+
     while True:
         with ScopedTiming("total", 0):
             img = pl.get_frame()
             dets = face_det.run(img)          # rgb888p 坐标下的人脸框列表 [x,y,w,h,...]
             pl.osd_img.clear()
+
+            now = time.ticks_ms()
+            do_send = time.ticks_diff(now, last_send) >= SEND_MS
+            if do_send:
+                last_send = now
 
             # 屏中线（看脸偏左还是偏右）
             pl.osd_img.draw_line(disp_w // 2, 0, disp_w // 2, disp_h, color=(255, 128, 128, 128), thickness=2)
@@ -111,9 +119,11 @@ if __name__ == "__main__":
                 pl.osd_img.draw_string_advanced(x, max(y - 40, 0), 32, "x=%.2f" % face_x,
                                                 color=(255, 255, 0, 0))
 
-                link.send({"t": "face", "x": round(face_x, 2), "n": len(dets)})
+                if do_send:
+                    link.send({"t": "face", "x": round(face_x, 2), "n": len(dets)})
             else:
-                link.send({"t": "noface"})
+                if do_send:
+                    link.send({"t": "noface"})
 
             pl.show_image()
             gc.collect()

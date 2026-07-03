@@ -31,6 +31,7 @@ device_state_t app_state_get(void)
 
 void app_state_set(device_state_t state)
 {
+    if (state == s_state) return;   /* 状态没变，不打印不做事 */
     ESP_LOGI(TAG, "%s → %s", state_name(s_state), state_name(state));
     s_state = state;
 }

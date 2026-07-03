@@ -74,5 +74,6 @@ static void rx_task(void *arg)
 void uart_bridge_start_rx(uart_bridge_line_cb_t cb)
 {
     s_line_cb = cb;
-    xTaskCreate(rx_task, "uart_bridge_rx", 4096, NULL, 10, NULL);
+    /* 优先级 4：低于对话任务(5)，别抢音频/唤醒的 CPU 导致卡顿 */
+    xTaskCreate(rx_task, "uart_bridge_rx", 4096, NULL, 4, NULL);
 }

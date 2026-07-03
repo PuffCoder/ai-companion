@@ -1,6 +1,8 @@
 #include "mic.h"
 #include "bsp_board.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "driver/i2s_std.h"
 #include "driver/gpio.h"
 #include "esp_log.h"

@@ -1,5 +1,16 @@
-# Copy this file to sdkconfig.defaults.local and fill in your credentials.
-# sdkconfig.defaults.local is gitignored.
-# Set these in sdkconfig.defaults.local (gitignored)
-# CONFIG_WIFI_SSID=""
-# CONFIG_WIFI_PASSWORD=""
+# N16R8: 16MB flash + 8MB octal PSRAM
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+
+# 自定义分区表（含 model 分区放唤醒词模型）
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# 证书 bundle（HTTPS 到 OpenAI）— 完整 + 交叉签名验证
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_CROSS_SIGNED_VERIFY=y
+
+# 唤醒词模型见 menuconfig: ESP Speech Recognition → Hi ESP (wn9_hiesp)
