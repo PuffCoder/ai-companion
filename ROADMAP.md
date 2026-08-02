@@ -1,182 +1,115 @@
-# AI 小黄人陪伴机器人 — 开发路线图
+# Roadmap — AI Companion Robot
 
-> 本文档是项目的开发指南与设计决策记录。
-> 最后更新：2026-06（架构调整为双脑分工）
+> Development guide and design-decision record. Last updated: 2026-06.
 
 ---
 
-## 1. 系统架构（双脑分工）
+## 1. Architecture (dual-brain)
 
-两块芯片各做擅长的事，**数据本地化，互不搬运**：
+Two chips, each doing what it's best at. **Data stays local — never shuffled between them.**
 
 ```
-     ESP32-S3（音频脑 + 身体）            K230（视觉脑）
-   ┌──────────────────────────┐      ┌──────────────────────┐
-   │ INMP441 麦克风 (I2S)       │      │ GC2093 摄像头         │
-   │ MAX98357A + 扬声器 (I2S)   │ UART │ KPU: 情绪识别         │
-   │ WiFi → OpenAI 语音链路     │◄════►│ KPU: 跌倒检测         │
-   │ STT → GPT → TTS           │ JSON │ 本地推理（可离线）     │
-   │ WS2812 LED / 舵机 / LCD    │      │ 视觉事件 → UART       │
-   └──────────────────────────┘      └──────────────────────┘
+      ESP32-S3 (audio brain + body)            K230 (vision brain)
+   ┌────────────────────────────────┐      ┌──────────────────────────┐
+   │ INMP441 mic (I2S)               │      │ GC2093 camera            │
+   │ Wake word (esp-sr)              │ UART │ KPU: face detection      │
+   │ WiFi → OpenAI voice pipeline    │◄════►│ (recognition, emotion…)  │
+   │ STT → GPT → TTS                 │ JSON │ local inference (offline)│
+   │ WS2812 LED / servo / LCD        │      │ vision events → UART     │
+   └────────────────────────────────┘      └──────────────────────────┘
 ```
 
-**核心思想**：
-- **ESP32 = 音频脑**：麦克风 + 扬声器 + AI 语音对话 + 身体控制（灯/舵机/屏）
-- **K230 = 视觉脑**：摄像头 + KPU，本地跑情绪识别 / 跌倒检测，结果通过 UART 发给 ESP32
-- 音频只在 ESP32，视频只在 K230 —— **两块芯片真并行**，互不抢资源
-- UART 只走小数据（视觉事件 JSON），音频/视频绝不过 UART
+- **ESP32 = audio brain + body**: mic + speaker + AI voice + LED/servo/screen + the LLM/memory/persona.
+- **K230 = vision brain**: camera + KPU, runs detection locally, sends results over UART.
+- Audio only on ESP32, video only on K230 — **true parallelism**, no resource contention.
+- UART carries only small JSON events; audio/video never cross it.
 
-**为什么这样分**：
-1. 解决了"摄像头 + 音频抢资源"问题 → 拆到两块芯片，可同时听+看
-2. K230 视觉是纯本地 KPU 推理，断网也能用（跌倒检测刚需）
-3. 每块芯片数据本地化，避免大数据过慢速 UART
+**Why split this way:** solves the camera + audio resource contention (listen and see at
+the same time); K230 vision is local KPU inference (works offline); each chip keeps its
+data local instead of pushing big data over a slow UART.
 
 ---
 
-## 2. 当前测试策略（条件受限的过渡方案）
+## 2. Tech choices
 
-> ⚠️ 现在还没有扬声器 + MAX98357A，所以语音暂时在 K230 上测。
+| Area | Choice | Why |
+|------|--------|-----|
+| ESP32 framework | ESP-IDF + FreeRTOS | C, component architecture |
+| K230 | CanMV (MicroPython) | KPU vision, fast iteration |
+| AI service | OpenAI (Whisper + GPT-4o-mini + TTS) | one key, direct HTTPS |
+| Vision models | K230 KPU kmodels (face, yolov8, pose) | local inference |
+| Board link | UART + NDJSON | small, robust, easy to debug |
+| Quality | modular components, unit tests, CI/CD | portfolio-grade engineering |
+
+---
+
+## 3. Status
+
+### Done ✅
+- Voice: wake word ("Hi ESP") → English chat (STT → GPT streaming → reply)
+- Long-term memory (NVS), persona system
+- ST7789 pixel-art emotions, driven by app_state machine
+- Servo head control
+- UART bridge K230 ↔ ESP32 (NDJSON, bidirectional, HW-verified)
+- K230 face detection → face_x → UART → servo face-following (closed loop)
+- Full integrated firmware in `esp32/main` (voice + emotion + face-follow + LED)
+- CI/CD pipeline (build + unit tests + release-to-GitHub-Releases)
+
+### In progress 🟡
+- Reliability tuning (heap monitoring for long-run stability)
+
+---
+
+## 4. Next: product direction
+
+The core robot works. Next is turning it into a real product: a phone app to
+configure/control it, and a firmware-update pipeline.
+
+### Companion app + BLE
+```
+Android app ──BLE──► ESP32 ──UART──► K230
+                       ├─ control (persona, actions)
+                       ├─ provisioning (WiFi / persona / API key → NVS)
+                       ├─ ESP32 firmware OTA
+                       └─ relay K230 .py/.kmodel updates over UART
+```
+> BLE is the app↔robot channel; WiFi stays the robot↔cloud channel for AI.
+
+### Epics (tracked in Jira)
+1. **Config to NVS** — make WiFi/API key runtime-settable (foundation)
+2. **BLE control** — ESP32 GATT server + Android app
+3. **BLE provisioning** — set WiFi / persona / key from the app
+4. **ESP32 OTA over BLE** — dual-slot partitions, receive + apply + rollback
+5. **K230 update relay** — push .py/.kmodel through ESP32 → K230 SD card
+6. **Hardware & PCB** — speaker + streaming TTS, power design, custom PCB
+7. **Product design & identity** — finalize wake word + appearance
+
+### OTA / fleet updates
+```
+push code → CI builds → GitHub Releases (.bin + version.json)
+                                   ↑
+             device checks version.json → downloads → OTA → reboot
+```
+No custom backend needed to start — GitHub Releases hosts the firmware.
+
+---
+
+## 5. Known limits (design constraints)
+
+| Limit | Reality | Impact |
+|-------|---------|--------|
+| Voice latency | serial HTTP calls, ~3–8 s floor | not instant; network-bound |
+| Barge-in | single-threaded flow | strict turn-taking |
+| Battery | two chips, high draw | fine for desktop use |
+| Offline | voice needs internet; vision is local | face tracking works offline |
+| TTS | speaker not wired yet | replies print to serial for now |
+
+---
+
+## 6. Recommended order
 
 ```
-现阶段（测试）：K230 + Python 直连 OpenAI 测语音对话
-              目的：验证 AI 链路、prompt、对话逻辑、UX
-              这部分是「临时测试代码」
-
-最终（量产）：  语音迁移到 ESP32（C + I2S + 直连 OpenAI）
-              K230 专注视觉
+Config→NVS → BLE control → provisioning → OTA → K230 relay      (software product)
+Speaker + streaming TTS → power → PCB schematic → layout → fab  (hardware product)
 ```
-
-**原则**：不被缺的硬件卡住，先用现有条件验证软件，硬件到位再迁移。
-
----
-
-## 3. 技术选型
-
-| 项目 | 选择 | 理由 |
-|------|------|------|
-| ESP32 框架 | ESP-IDF v5.x + FreeRTOS | C，组件化 |
-| K230 开发 | CanMV (MicroPython) | KPU 视觉 + 现阶段测语音 |
-| K230 工作流 | VS Code + mpremote | 替代简陋的 CanMV IDE |
-| AI 服务 | OpenAI（Whisper + GPT-4o-mini + TTS） | 直连，单 Key 全包 |
-| 视觉模型 | K230 KPU kmodel（yolov8 / 人脸 / 姿态） | 本地推理 |
-| 两板协议 | UART + JSON-RPC（MCP 风格） | 借鉴 xiaozhi-esp32 |
-| 开发方法 | TDD + 模块化 | 作品集工程质量 |
-
----
-
-## 4. 硬件清单与状态
-
-### ESP32-S3-WROOM-1-N16R8（音频脑 + 身体）
-| 外设 | 接口 | 状态 |
-|------|------|------|
-| WS2812 LED | GPIO38 | ✅ |
-| WiFi | 板载 | ✅ |
-| ST7789 LCD 170x320 | SPI | ✅ |
-| MG90S 舵机 | GPIO14 | ✅ |
-| INMP441 麦克风 | I2S | ⬜ 待接 |
-| MAX98357A + 扬声器 | I2S | ⬜ 待买/接 |
-
-### K230-CanMV（视觉脑）
-| 外设 | 接口 | 状态 |
-|------|------|------|
-| WiFi | 板载 | ✅ |
-| 摄像头 GC2093 | MIPI-CSI1 | ✅ |
-| 麦克风/3.5mm（测试用） | 板载 | ✅ |
-| 用户按键 | GPIO53（PULL_DOWN） | ✅ |
-
----
-
-## 5. 开发阶段
-
-### 阶段 A — AI 语音验证（K230 临时测试）🟡 进行中
-> 用 K230 Python 直连 OpenAI，验证软件逻辑，不等扬声器硬件。
-- ✅ 按键 → 录音 → Whisper → GPT → TTS → 播放
-- ✅ 模块化：`config/button/recorder/speech/llm`
-- ✅ `has_voice()` 音量门限（解决静音幻觉）
-- [ ] 实测识别率，调门限
-- [ ] 验证 prompt / 人设 / 对话体验
-
-### 阶段 B — K230 视觉（核心新方向）⬜
-- [ ] 确认板载 kmodel：`os.listdir("/sdcard/examples/kmodel")`
-- [ ] 摄像头 AI 管道跑通（人脸检测，Frame Buffer 显示）
-- [ ] **情绪识别**：人脸检测 → 情绪分类
-- [ ] **跌倒检测**：姿态估计（pose）→ 关键点规则判断
-- [ ] 视觉结果格式化为 JSON 事件
-
-### 阶段 C — UART 连接（两脑通信）⬜
-- [ ] 硬件：K230 串口3 ↔ ESP32-S3（TX/RX/GND）
-- [ ] 协议：JSON-RPC（MCP 风格）
-- [ ] K230 侧：`uart_bridge.py` 发视觉事件
-- [ ] ESP32 侧：`uart_bridge` 组件 收事件 + 解析
-
-### 阶段 D — ESP32 联动 🟡
-- [ ] 收到 `emotion` → LED / 舵机 / LCD 表达
-- [ ] 收到 `fall` → 触发语音报警
-- [ ] 灯/舵机/屏从测试动画改为响应指令
-
-### 阶段 E — ESP32 语音迁移（扬声器到位后）⬜
-- [ ] 接 INMP441（I2S 输入）+ MAX98357A（I2S 输出）
-- [ ] ESP32 C 版：录音 → Whisper → GPT → TTS → 播放
-- [ ] 把 K230 的临时语音代码迁移到 ESP32
-
-### 阶段 F — MCP / Function Calling（亮点）⬜
-- [ ] ESP32 注册工具：`set_led` / `servo_wave` / `show_text` / `speak`
-- [ ] GPT function-calling 自主驱动身体
-
-### 阶段 G — 唤醒词（已确认要做）⬜
-- [ ] ESP32 侧本地唤醒词（ESP-SR）或 K230 KPU 唤醒词
-- [ ] 替代按键触发
-
-### 阶段 H — 工程化 🟡
-- [ ] `config.py` 加 gitignore（含真实密钥，优先）
-- [ ] 关键模块单元测试（TDD）
-- [ ] README 架构图 + 演示 GIF
-
----
-
-## 6. 能力边界（设计约束）
-
-| 限制 | 现实 | 影响 |
-|------|------|------|
-| 语音延迟 | 直连 HTTP 串行，地板 ≈ 3-4 秒 | 做不到秒回 |
-| 打断对话 | 单线程，无真并发 | 一问一答，无 barge-in |
-| 续航 | K230 + ESP32 双芯片功耗大 | 桌面演示够用 |
-| 离线 | 语音依赖联网；视觉本地可离线 | 跌倒检测断网仍可用 ✅ |
-| STT 质量 | 单麦无降噪 | 安静近场好，嘈杂远场差 |
-| 视觉+音频并行 | ✅ 拆到两块芯片后已解决 | 可同时听+看 |
-
----
-
-## 7. 目标定位
-
-**稳定的桌面陪伴机器人**，核心交付：
-1. 唤醒词 / 按键触发 → 语音对话（ESP32）
-2. AI 通过 MCP 驱动灯/舵机/屏
-3. K230 视觉：情绪识别 + **跌倒检测**（落地场景，作品集亮点）
-4. 两脑并行：一边听说话，一边看防跌倒
-5. 稳定、模块化、有测试、有文档
-
-> 跌倒检测让项目从"玩具对话机"升级为"有真实使命的陪伴机器人"（老人看护）。
-
----
-
-## 8. 推荐开发顺序
-
-```
-阶段A 语音验证（K230临时，验证软件）
-  → 阶段B K230 视觉（情绪 + 跌倒，K230 主场）
-  → 阶段C UART 连接（两脑合体）
-  → 阶段D ESP32 联动（视觉事件驱动身体）
-  →（扬声器到位）阶段E 语音迁 ESP32
-  → 阶段F MCP + 阶段G 唤醒词
-  → 阶段H 工程化打磨
-```
-
----
-
-## 9. 当前最优先动作
-
-1. **`config.py` 加 gitignore** —— 含真实 API Key，防泄露
-2. **阶段 A** —— 测 STT 识别率，验证语音软件逻辑
-3. **阶段 B** —— 确认 kmodel，跑通摄像头 AI 管道（K230 主场，最该发力的方向）
-```
+Run both tracks in parallel. Do speaker + TTS early — it makes the robot talk out loud.

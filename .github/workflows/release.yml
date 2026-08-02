@@ -1,0 +1,42 @@
+name: release
+
+# Tag a commit like v1.0.0 and push it → builds + publishes firmware to a GitHub Release.
+# Devices later fetch version.json + the .bin from Releases for OTA.
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    name: Build & publish firmware
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # needed to create the release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Provide config.h
+        run: cp esp32/main/config.h.example esp32/main/config.h
+
+      - name: Build firmware
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: release-v5.4
+          target: esp32s3
+          path: esp32
+
+      - name: Generate version.json (OTA manifest)
+        run: |
+          cat > version.json <<EOF
+          {
+            "version": "${GITHUB_REF_NAME}",
+            "url": "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/ai_companion.bin"
+          }
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            esp32/build/ai_companion.bin
+            version.json

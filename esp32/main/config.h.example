@@ -1,0 +1,8 @@
+#pragma once
+
+/* Template — copy to config.h and fill in real values.
+ * config.h is gitignored; CI copies this file to config.h just so the build compiles. */
+
+#define WIFI_SSID      "your-wifi-ssid"
+#define WIFI_PASSWORD  "your-wifi-password"
+#define OPENAI_API_KEY "sk-your-key-here"

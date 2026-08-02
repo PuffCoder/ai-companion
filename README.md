@@ -1,144 +1,125 @@
-# AI Companion Robot (小黄人陪伴机器人)
+# AI Companion Robot
 
-An AI-powered companion robot built on ESP32-C6 (prototype) → ESP32-S3 + K230-CanMV (production), featuring voice interaction, emotion expression, memory, and Claude AI integration.
+A desktop AI companion robot with a **dual-brain architecture**: an ESP32-S3 handles
+audio + body, a Kendryte K230 handles vision, and they talk to each other over a
+3-wire UART link. It listens, chats (in English), remembers you, shows expressions,
+and turns its head to follow your face.
 
-Built as a learning project and portfolio piece, developed using TDD (Test-Driven Development) principles with ESP-IDF and Unity test framework.
+Built as a portfolio project — embedded firmware (C / ESP-IDF), on-device vision
+(MicroPython / CanMV), cloud AI (OpenAI), plus CI/CD and an OTA update pipeline.
+
+---
+
+## What it does
+
+- 🎤 **Wake word** ("Hi ESP") → continuous English voice conversation
+- 🧠 **Long-term memory** — remembers facts about you across reboots (stored in NVS)
+- 😊 **Pixel-art emotions** on an ST7789 screen, driven by a state machine
+- 👁️ **Face tracking** — K230 detects your face, the servo turns the head to follow you
+- 🔌 **Two chips, one robot** — connected by just UART TX/RX + GND
+
+---
+
+## Architecture
+
+```
+        ESP32-S3  (audio brain + body)            K230  (vision brain)
+   ┌────────────────────────────────┐        ┌──────────────────────────┐
+   │ INMP441 mic (I2S)               │        │ GC2093 camera (CSI)      │
+   │ Wake word (esp-sr AFE)          │  UART  │ KPU face detection       │
+   │ STT → GPT → memory  (OpenAI)    │◄══════►│ compute face position    │
+   │ ST7789 emotions / servo / LED   │  JSON  │ send events (NDJSON)     │
+   └────────────────────────────────┘        └──────────────────────────┘
+        WiFi → OpenAI (STT / GPT / TTS)
+```
+
+**Principle:** audio lives only on the ESP32, video only on the K230. The UART link
+carries only small JSON events (e.g. `{"t":"face","x":0.3}`) — never audio or video.
+
+### Voice pipeline
+```
+"Hi ESP" → record (VAD) → Whisper STT → GPT-4o-mini (streaming) → reply
+                                                    └→ extract [remember] → NVS
+```
+
+### Vision pipeline
+```
+camera → KPU face detection → normalized face_x ∈ [-1,1] → UART → servo follows
+```
 
 ---
 
 ## Hardware
 
-### Prototype (Current)
-| Component | Part |
-|-----------|------|
-| MCU | ESP32-C6 |
-| LED | WS2812 RGB (GPIO 8) |
+| Component | Part | Where |
+|-----------|------|-------|
+| Audio/body MCU | ESP32-S3-WROOM-1 (N16R8) | main brain |
+| Vision SoC | Kendryte K230 (CanMV) | camera brain |
+| Microphone | INMP441 (I2S MEMS) | ESP32 |
+| Display | ST7789 1.9" 320×170 SPI | ESP32 |
+| Servo | continuous-rotation (head) | ESP32 |
+| LED | WS2812 | ESP32 |
+| Speaker | MAX98357A + 4Ω (planned) | ESP32 |
+| Camera | GC2093 | K230 |
 
-### Production Target
-| Component | Part |
-|-----------|------|
-| AI Main Board | 立创·庐山派 K230-CanMV (1G) |
-| WiFi/BLE MCU | ESP32-S3-WROOM-1-N16R8 |
-| LCD Display | 1.9" TFT 170x320 ISP |
-| Camera | GC2093 |
-| Microphone | INMP441 (I2S, omnidirectional MEMS) |
-| Speaker | 4Ω 2W |
-| Amplifier | MAX98357A (I2S) |
-| Servo | MG90S Metal Servo (180°) |
-| Battery | 3.7V 3000mAh LiPo |
-| Boost Converter | 5V 3A |
-| Charging IC | IP5306 |
-| Storage | 32GB Industrial TF Card |
+Full pin map: [`esp32/components/bsp/bsp_board.h`](esp32/components/bsp/bsp_board.h) ·
+wiring notes: [`docs/wiring.md`](docs/wiring.md)
 
 ---
 
-## System Architecture
+## Software
 
 ```
-K230-CanMV (AI Brain)          ESP32-S3 (Control Hub)
-──────────────────────         ───────────────────────────
-Camera (GC2093)                INMP441 Mic     (I2S in)
-Wake word detection      UART  MAX98357A Amp   (I2S out)
-Face/emotion recognition ◄───► 1.9" LCD Display
-Local AI inference             MG90S Servo
-MicroPython runtime            TF Card
-                               WiFi → Cloud AI API
-                               WS2812 LED
-```
-
-### AI Voice Pipeline
-```
-User speaks
-  → INMP441 (I2S) → ESP32-S3 records audio
-  → WiFi → Cloud STT (Speech-to-Text)
-  → Claude API (conversation)
-  → Cloud TTS (Text-to-Speech)
-  → MAX98357A → Speaker
-  → ESP32-S3 drives LED + Servo (emotion expression)
+esp32/                 ESP-IDF firmware (C)
+├── main/              integrated app (state machine + all subsystems)
+├── components/        bsp, stt, llm, memory, emotion_engine, servo_driver,
+│                      uart_bridge, led_driver, display_driver, app_state
+└── examples/          per-feature test apps (mic, screen, servo, uart, face_track…)
+k230/                  CanMV MicroPython (vision brain)
+├── main.py            boot auto-run: face detection → UART
+└── ai_robot/          uart_link, board, face_detect
+shared/protocol/       UART NDJSON protocol spec
+tests/                 host unit tests (pytest)
+docs/                  wiring, dev log, TODO
 ```
 
 ---
 
-## Features
+## Build & run
 
-- [x] WS2812 LED control
-- [x] WiFi connection (Station mode)
-- [x] HTTP server (LED on/off via REST)
-- [ ] I2S audio recording (INMP441)
-- [ ] I2S audio playback (MAX98357A)
-- [ ] Cloud STT integration
-- [ ] Claude AI conversation
-- [ ] Cloud TTS integration
-- [ ] LCD display driver
-- [ ] Servo emotion expressions
-- [ ] Wake word detection (K230)
-- [ ] Camera emotion recognition (K230)
-- [ ] K230 ↔ ESP32-S3 UART protocol
-- [ ] Memory / conversation history
-
----
-
-## Development
-
-### Prerequisites
-- ESP-IDF v5.x
-- Python 3.8+
-- VS Code + ESP-IDF extension
-
-### Build & Flash
+### ESP32 (ESP-IDF)
 ```bash
-cd firmware/wifi_demo
-idf.py build
-idf.py flash monitor
+cd esp32
+cp main/config.h.example main/config.h    # then fill in WiFi + OpenAI key
+idf.py set-target esp32s3
+idf.py menuconfig                          # ESP Speech Recognition → Hi ESP
+idf.py -p <PORT> flash monitor
 ```
 
-### Run Tests
+### K230 (CanMV)
+Copy `k230/main.py` to the SD card root (`/sdcard/main.py`) and `k230/ai_robot/*` to
+`/sdcard/ai_robot/`. Power on (without the IDE) → face tracking runs automatically.
+
+### Tests
 ```bash
-# Host-based unit tests (no hardware needed)
-idf.py -T tests/unit build
-
-# On-target integration tests
-idf.py -T tests/integration flash monitor
+pip install pytest && pytest tests/ -v
 ```
 
 ---
 
-## Project Structure
-```
-firmware/
-├── blinky/          # LED blink demo
-├── wifi_demo/       # WiFi + HTTP server + LED (modular components)
-│   ├── components/
-│   │   ├── bsp/           # Board Support Package
-│   │   ├── led_driver/    # WS2812 LED abstraction
-│   │   ├── wifi_manager/  # WiFi station management
-│   │   └── http_server/   # REST API endpoints
-│   └── main/
-└── tests/           # Unity test suites (TDD)
-    ├── unit/        # Host-based, no hardware
-    └── integration/ # On-target hardware tests
-```
+## CI/CD
+
+- **CI** (`.github/workflows/ci.yml`) — builds the ESP32 firmware and runs Python
+  unit tests on every push.
+- **Release** (`.github/workflows/release.yml`) — tag `vX.Y.Z` → builds and publishes
+  the firmware `.bin` + `version.json` to GitHub Releases (source for OTA).
 
 ---
 
-## Development Approach
+## Status
 
-This project follows **TDD (Test-Driven Development)**:
-1. Write a failing test first (Unity framework)
-2. Write the minimum code to make it pass
-3. Refactor
+**Working:** wake word · English voice chat · long-term memory · pixel emotions ·
+servo head · K230 face detection · face-following · full integrated firmware.
 
-Each component in `firmware/wifi_demo/components/` has a corresponding test suite.
-
----
-
-## Roadmap
-
-| Phase | Focus | Board |
-|-------|-------|-------|
-| 1 | WiFi + LED + HTTP server | ESP32-C6 |
-| 2 | I2S audio recording + playback | ESP32-C6 / S3 |
-| 3 | Cloud STT + Claude API + TTS | ESP32-S3 |
-| 4 | K230 wake word + camera | K230-CanMV |
-| 5 | K230 ↔ ESP32-S3 integration | Both |
-| 6 | Emotion system (LED + Servo + LCD) | ESP32-S3 |
+**Next:** Android/BLE companion app · WiFi provisioning · OTA updates · streaming TTS
+(speaker) · custom PCB. See [`ROADMAP.md`](ROADMAP.md) and [`docs/TODO.md`](docs/TODO.md).

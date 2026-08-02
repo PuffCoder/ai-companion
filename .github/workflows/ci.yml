@@ -1,0 +1,47 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  esp32-build:
+    name: Build ESP32 firmware
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # config.h is gitignored — provide dummy creds so the build compiles
+      - name: Provide config.h
+        run: cp esp32/main/config.h.example esp32/main/config.h
+
+      - name: Build firmware
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          # match your local IDF; if this tag fails, try release-v6.0 or latest
+          esp_idf_version: release-v5.4
+          target: esp32s3
+          path: esp32
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-companion-firmware
+          path: |
+            esp32/build/ai_companion.bin
+            esp32/build/flasher_args.json
+
+  k230-syntax:
+    name: K230 Python syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # py_compile checks syntax only — doesn't import CanMV libs, so it works in CI
+      - name: Compile-check K230 scripts
+        run: |
+          python -m py_compile k230/main.py
+          python -m py_compile k230/ai_robot/uart_link.py k230/ai_robot/board.py k230/ai_robot/face_detect.py

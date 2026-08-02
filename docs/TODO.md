@@ -1,46 +1,49 @@
-# TODO / 待办清单
+# TODO
 
-> AI 小黄人陪伴机器人。勾掉 = 已完成。详细记录见 `devlog.md`，路线见 `ROADMAP.md`。
-> 最后更新：2026-06-20
-
----
-
-## 🎯 下一步（当前焦点）
-
-- [ ] **人脸检测 (face detection)** — K230
-  摄像头(GC2093) → KPU 检测人脸 → 算归一化 `face_x ∈ [-1,1]` →
-  `uart_link.send({"t":"face","x":..,"n":..})` → ESP32 转头闭环。
-  参考 `reference/object_detect_yolov8n_1.py`（检测流程）、`reference/gc2093.py`（摄像头）。
-  不依赖屏，可立即做。
+> AI Companion Robot. Checked = done. Details in `devlog.md`, plan in `ROADMAP.md`.
+> Detailed backlog with acceptance criteria lives in Jira.
 
 ---
 
-## K230（视觉脑）
+## 🎯 Focus (next up)
+- [ ] **Config to NVS** — move WiFi/API key from `config.h` to NVS (foundation for
+  provisioning + OTA); no creds → provisioning mode, creds present → auto-connect
+- [ ] **Streaming TTS + speaker** — wire MAX98357A, play OpenAI TTS out loud
+  (replaces serial print)
 
-- [ ] **ST7789 驱动 (k230-st7789 driver)**
-  MicroPython 版 ST7789 SPI 驱动（找现成 / 适配 CanMV）。
-  屏放 K230 属"3 线脖子"未来想法，prototype 阶段暂缓，但驱动可先备着。
-- [ ] **表情动画模板 (motion template on st7789)**
-  在 ST7789 上画机器人的"脸"：眨眼 / 喜怒等表情模板。
-  依赖 ST7789 驱动；情绪由 ESP32 决定，UART 发 `{"t":"emotion","v":".."}` → K230 渲染。
+## 📱 Companion app (BLE)
+- [ ] ESP32 BLE GATT server + command protocol
+- [ ] Android app: connect + send command (MVP)
+- [ ] BLE provisioning (set WiFi / persona / API key from the app)
 
-## ESP32（音频脑 + 身体）
+## 🔄 OTA firmware update
+- [ ] Dual-slot partition table (ota_0 / ota_1)
+- [ ] OTA client (version check / download / apply / rollback)
+- [ ] K230 update relay (push .py/.kmodel through ESP32 → K230 SD)
 
-- [ ] **OTA 升级 (OTA update function)**
-  WiFi 在线更新固件，免插线烧录。需 OTA 分区表 + esp_https_ota。
-- [ ] **用户录入数据 (user enter data)**
-  让用户自己输入个人信息（姓名/喜好）写入长期记忆，替代代码里硬编码。
-  方式待定：WiFi 配网页面 / BLE / 串口命令。关联 memory + persona 组件。
+## ⚙️ CI/CD
+- [x] GitHub Actions build CI + release-to-Releases
+- [x] Python host unit-test example (pytest)
+- [ ] Unity host tests for ESP32 C logic (servo mapping, memory dedup)
 
-## 机械 / 外观
+## 🛠️ Hardware / design
+- [ ] Power design (single input, 3.3V + 5V rails, current budget)
+- [ ] Custom PCB (schematic → layout → fab → bring-up)
+- [ ] 3D-printed shell
+- [ ] Finalize wake word + appearance
+- [ ] Rotate OpenAI API key (was committed to git history)
 
-- [ ] **3D 打印外壳 (3d print shell)**
-  机器人本体外壳；要给舵机转头、摄像头、屏、麦克/扬声器、走线预留位置。
+## 💡 Later / optional
+- [ ] Face recognition (identify the user)
+- [ ] Content-aware emotions (GPT emotion tags → screen)
 
 ---
 
-## ✅ 已完成（近期）
-- [x] UART 桥 K230↔ESP32 双向通（NDJSON，HW verified）— 2026-06-20
-- [x] K230 重构为视觉脑，旧语音归档 — 2026-06-20
-- [x] 连续旋转舵机正反转/停 — 2026-06-19
-- [x] 语音链路（唤醒词 / STT / GPT 流式 / TTS / 长期记忆 / 人设）
+## ✅ Done (recent)
+- [x] Full integrated firmware in esp32/main (voice + emotion + face-follow + LED)
+- [x] K230 face detection → face_x → UART → servo face-following
+- [x] K230 boot auto-run (face tracking on power-up)
+- [x] UART bridge K230 ↔ ESP32 (NDJSON, HW-verified)
+- [x] ST7789 pixel-art emotions (flicker-free framebuffer)
+- [x] English voice pipeline (wake word / STT / GPT streaming / memory / persona)
+- [x] Continuous-rotation servo control

@@ -182,6 +182,16 @@ static void ui_task(void *arg)
             emotion_blink();
             next_blink = esp_timer_get_time() + 4000000;   /* 4s */
         }
+        /* 后台内存监控：每 ~15s 打印一次，看是否随时间下降 */
+        static int hc = 0;
+        if (++hc >= 75) {
+            hc = 0;
+            ESP_LOGW("heap", "int free=%u largest=%u min=%u | psram=%u",
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+                     (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+        }
         vTaskDelay(pdMS_TO_TICKS(200));
     }
 }
@@ -314,6 +324,11 @@ static void conversation_task(void *arg)
             printf("AI: ");
             bool ok = llm_chat_stream(OPENAI_API_KEY, text, on_delta, &stop_print, reply, sizeof(reply));
             printf("\n");
+            ESP_LOGW(TAG, "HEAP int free=%u largest=%u min=%u | psram=%u",
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+                     (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
             if (ok) {
                 char *m1 = strstr(reply, "[remember]");
                 if (m1) {

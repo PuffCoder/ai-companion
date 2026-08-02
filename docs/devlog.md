@@ -1,201 +1,242 @@
-# 开发日志 / Dev Log
+# Dev Log
 
-> AI 小黄人陪伴机器人。记录里程碑、踩坑、解决方案。
+> AI Companion Robot. Milestones, gotchas, and fixes.
 
 ---
 
-## 2026-06-08 — ESP32 语音链路（麦克风 + STT + TTS）
+## 2026-06-08 — ESP32 voice pipeline (mic + STT + TTS)
 
-### ✅ 已完成
-- **INMP441 麦克风**（I2S）跑通
-- **STT**（OpenAI Whisper）链路打通：录音 → WAV → 上传 → 返回 200
-- **TLS** 到 OpenAI 成功（cross-signed 证书验证）
+### ✅ Done
+- **INMP441 microphone** (I2S) working
+- **STT** (OpenAI Whisper): record → WAV → upload → HTTP 200
+- **TLS** to OpenAI working (cross-signed certificate verification)
 
-### 🔧 关键踩坑与解决
+### 🔧 Key gotchas & fixes
 
-**1. 旧 ESP32 板 GPIO42 损坏**
-- 现象：同样接线/代码，旧板读垃圾数据，新板正常
-- 解决：换板。ESP32-S3 I2S 可路由任意空闲 GPIO，坏脚可换
+**1. Old ESP32 board had a dead GPIO42**
+- Symptom: same wiring/code, old board read garbage, new board fine
+- Fix: swap board. ESP32-S3 I2S can route to any free GPIO, so a bad pin is swappable
 
-**2. INMP441 是 24 位麦克风**
-- 现象：用 16 位 I2S 槽读，信号极弱（avg 8~100）
-- 解决：用 **32 位 I2S 槽**读取，再 `>> MIC_SHIFT` 缩放为 16 位
-- `slot_mask = I2S_STD_SLOT_LEFT`（L/R 接 GND = 左声道）
+**2. INMP441 is a 24-bit mic**
+- Symptom: reading with a 16-bit I2S slot gave a very weak signal (avg 8–100)
+- Fix: read with a **32-bit I2S slot**, then `>> MIC_SHIFT` to scale down to 16-bit
+- `slot_mask = I2S_STD_SLOT_LEFT` (L/R = GND = left channel)
 
-**3. GND 接错侧**
-- 现象：L/R 接左侧 GND（GPIO14 下方）→ 全 0 / railing
-- 解决：改接**右侧 GND**（GPIO19 下方）。见 docs/wiring.md
+**3. GND on the wrong side**
+- Symptom: L/R tied to a left-side GND (under GPIO14) → all-zero / railing
+- Fix: use a **right-side GND** (under GPIO19). See docs/wiring.md
 
-**4. 接触不良（反复出现）**
-- 现象：峰值大部分 0、偶尔 32768，间歇性断
-- 解决：母对母杜邦线直连 / 焊接，**甩掉面包板**。线短插牢
+**4. Intermittent contact (recurring)**
+- Symptom: mostly-zero peaks, occasional 32768, flaky drops
+- Fix: direct female-female dupont / solder, **ditch the breadboard**. Short, firm wires
 
-**5. main 任务栈溢出**
-- 现象：上传 Whisper 时 `stack overflow in task main`
-- 解决：录音+HTTP+TLS 放进 **8KB 栈的独立任务**（xTaskCreate）
-- ⚠️ TTS 同理会溢出（见下方待办）
+**5. main task stack overflow**
+- Symptom: `stack overflow in task main` while uploading to Whisper
+- Fix: run record + HTTP + TLS in a **separate 8KB-stack task** (xTaskCreate)
+- ⚠️ TTS overflows the same way (see TODO below)
 
-**6. TLS 证书验证失败**
-- 现象：`No matching trusted root certificate found`
-- 解决：menuconfig 开启
-  - 完整证书 bundle（DEFAULT_FULL）
-  - **Support cross-signed certificate verification**（关键，DST Root CA X3）
-- 这是正规安全方案，非跳过验证
+**6. TLS certificate verification failed**
+- Symptom: `No matching trusted root certificate found`
+- Fix: enable in menuconfig
+  - full certificate bundle (DEFAULT_FULL)
+  - **Support cross-signed certificate verification** (key — DST Root CA X3)
+- Proper security, not skipping verification
 
-### ⚠️ 进行中 / 待办
-- **TTS 栈溢出**：和 STT 同因——TTS 的 HTTP+TLS+音频解码吃栈。
-  解决：把 TTS 流程放进大栈任务（≥8KB，TLS 多可给 12KB）。
-- STT 偶尔返回空文字：录音时机/音量，需保证说话时段被录到。
-- TLS 临时跳过验证的配置（ESP_TLS_INSECURE）已改回正规 bundle 验证。
+### ⚠️ In progress / TODO (at the time)
+- **TTS stack overflow**: same cause as STT — HTTP + TLS + audio decode eats stack.
+  Fix: run TTS in a big-stack task (≥8KB, give 12KB for TLS headroom).
+- STT occasionally returns empty text: recording timing / volume — make sure the
+  spoken segment is actually captured.
+- Temporary insecure-TLS config (ESP_TLS_INSECURE) reverted to proper bundle verify.
 
-### TTS 完成（焊接后）
-- 焊好排针 → 麦克风录音稳定（avg 1370，无丢包）
-- **STT 成功**：识别 "你好,今天天气怎么样?"，杂音不影响识别
-- **TTS 成功**：文字 → OpenAI TTS → 清晰语音
-- 封装 `stt` 组件（stt_transcribe_pcm）+ `mic` 组件
-- 新增 tts_test 例子：文字 → TTS → 传电脑存 WAV 试听（无需扬声器）
+### TTS done (after soldering)
+- Soldered headers → mic recording stable (avg 1370, no drops)
+- **STT works**: recognized "你好,今天天气怎么样?"; background noise didn't break it
+- **TTS works**: text → OpenAI TTS → clear speech
+- Wrapped `stt` component (stt_transcribe_pcm) + `mic` component
+- Added tts_test example: text → TTS → send to PC as WAV to audition (no speaker needed)
 
-### TTS 传输踩坑
-- 先用 UDP 传 TTS 音频 → 丢包/乱序 → 音频损坏听不出
-- 改用 **TCP**（PC 当服务器，ESP 连接发送）→ 完整有序，清晰
-- 教训：实时监听用 UDP（丢一点无所谓），完整文件传输用 TCP
-- TTS 用 `response_format=pcm`（裸 PCM 24kHz 单声道），无文件头
-- TTS 在 12KB 栈任务里跑（避免栈溢出）
+### TTS transport gotcha
+- First used UDP for TTS audio → dropped/out-of-order packets → corrupted audio
+- Switched to **TCP** (PC as server, ESP connects and sends) → complete, ordered, clear
+- Lesson: UDP for live monitoring (dropping a little is fine), TCP for whole-file transfer
+- TTS uses `response_format=pcm` (raw PCM 24kHz mono), no file header
+- TTS runs in a 12KB-stack task (avoids overflow)
 
-### 唤醒词成功（esp-sr WakeNet）
-- **"Hi ESP" 唤醒词检测跑通**：喊一声即触发，本地不联网
-- 用 esp-sr 的 AFE + WakeNet9（wn9_hiesp），喂 INMP441 音频
-- esp-sr 在 IDF v6.0.1 可用
-- 踩坑：头文件不是 esp_srmodel.h，是 **model_path.h**；组件名 **espressif__esp-sr**
-- 关键 API：esp_srmodel_init("model") → afe_config_init("M",...) →
+### Wake word working (esp-sr WakeNet)
+- **"Hi ESP" wake-word detection works**: one shout triggers it, fully local (offline)
+- esp-sr AFE + WakeNet9 (wn9_hiesp), fed by INMP441 audio
+- esp-sr available on IDF v6.0.1
+- Gotcha: header is not esp_srmodel.h, it's **model_path.h**; component name **espressif__esp-sr**
+- Key API: esp_srmodel_init("model") → afe_config_init("M",...) →
   esp_afe_handle_from_config → create_from_config → feed/fetch →
   res->wakeup_state == WAKENET_DETECTED
-- 需要自定义分区表 model 分区（4MB）+ menuconfig 选唤醒词
-- 新增 llm 组件（GPT 对话，多轮历史）
+- Needs a custom partition table with a 4MB model partition + wake word selected in menuconfig
+- Added llm component (GPT chat with multi-turn history)
 
-### ESP32 端 AI 积木全齐
-✅ 唤醒词(Hi ESP) ✅ 录音 ✅ STT(Whisper) ✅ GPT对话 ✅ TTS
-下一步：串成完整闭环 chat_test（喊醒→录音→STT→GPT→TTS）
+### All ESP32 AI building blocks ready
+✅ wake word (Hi ESP) ✅ record ✅ STT (Whisper) ✅ GPT chat ✅ TTS
+Next: wire them into a full loop — chat_test (wake → record → STT → GPT → TTS)
 
-### 完整对话闭环跑通 🎉
-- **chat_test**：喊"Hi ESP" → 录音 → STT → GPT → 串口打印回复
-- 唤醒词 + 麦克风共用一个 I2S（不冲突）
-- 整流程在 16KB 栈任务（AFE + TLS）
-- **多轮记忆验证通过**：说"我喜欢打篮球" → 后面问"我喜欢什么"能答出来
-- 无扬声器，回复打印串口；以后这里接 TTS 播放即可
-- 踩坑：EXTRA_COMPONENT_DIRS 指向整个 components/ 会编译所有组件
-  （wifi_manager 等需要 Kconfig）→ 改为把 stt/llm 复制进 example 自包含
+### Full conversation loop working 🎉
+- **chat_test**: "Hi ESP" → record → STT → GPT → reply printed to serial
+- Wake word + mic share one I2S (no conflict)
+- Whole flow in a 16KB-stack task (AFE + TLS)
+- **Multi-turn memory verified**: "I like basketball" → later "what do I like" answers it
+- No speaker yet, reply printed to serial; TTS playback slots in here later
+- Gotcha: EXTRA_COMPONENT_DIRS pointing at the whole components/ compiles ALL components
+  (wifi_manager etc. need Kconfig) → make examples self-contained by copying stt/llm in
 
-### 对话体验优化（chat_test）
-- **VAD 自动停录**：说完停嘴 500ms 自动结束，不再固定 5 秒
-- **连续对话**：喊一次 "Hi ESP" 后可连说多句，无需每句唤醒
-- **退出**：精确匹配"再见/拜拜"整句，或静音超时（句中含"再见"不误退）
-- **音量门限**（VOICE_THRESHOLD=300）：噪声/静音不发 Whisper，消除幻觉
-  （之前静音会被识别成"请点赞订阅""字幕由Amara提供"等垃圾）
-- **耗时统计**：每轮打印 录音/STT/GPT 时间
-- 实测：噪声音量 139-185，说话 303-723，门限 300 卡得好
-- 性能：响应（STT+GPT）约 7-8 秒，瓶颈是网络+云端，非芯片
-  （换 K230 不会更快；TLS 复用对间歇对话收益小）
+### Conversation UX polish (chat_test)
+- **VAD auto-stop**: 500ms of silence after you stop ends recording (no fixed 5s)
+- **Continuous chat**: one "Hi ESP" then talk multiple turns, no re-waking each time
+- **Exit**: exact whole-sentence match "再见/拜拜", or silence timeout (mid-sentence "再见" doesn't exit)
+- **Volume gate** (VOICE_THRESHOLD=300): noise/silence isn't sent to Whisper, kills hallucinations
+  (silence used to be transcribed as junk like "please like and subscribe")
+- **Timing stats**: prints record / STT / GPT time each turn
+- Measured: noise vol 139–185, speech 303–723; threshold 300 splits them well
+- Performance: response (STT+GPT) ~7–8s, bottleneck is network + cloud, not the chip
+  (K230 wouldn't be faster; TLS reuse helps little for intermittent chat)
 
-### 长期记忆 + 人设
-- 新增 **memory 组件**：NVS 存用户信息 + 人设，断电/重启不丢
-- 人设模板库（memory.h）：小黄人/管家/朋友，默认小黄人，存 NVS 可改
-- 系统提示 = 人设(NVS) + 用户信息(NVS)，开机加载
-- 预填 David 信息（首次开机写入，之后持久化）
-- 实测重启后正确加载："你是David，28岁，工程师，喜欢滑雪摩托" + 小黄人人设
-- 区分两种记忆：长期(NVS，重启保留) vs 短期(RAM对话历史，重启清空)
-- 退出优化：连续 3 次没有效说话自动结束对话（不再傻等）
-- 待做：阶段2 语音切换人设；阶段3 对话中自动提取事实存长期记忆
+### Long-term memory + persona
+- Added **memory component**: stores user info + persona in NVS, survives power loss/reboot
+- Persona templates (memory.h): Minion / Butler / Friend; default Minion, changeable in NVS
+- System prompt = persona (NVS) + user info (NVS), loaded on boot
+- Preloaded David's info (written on first boot, then persisted)
+- Verified reload after reboot: "you are David, 28, engineer, likes skiing/motorcycles" + Minion persona
+- Two kinds of memory: long-term (NVS, survives reboot) vs short-term (RAM history, cleared on reboot)
+- Exit polish: 3 consecutive no-speech rounds auto-ends the chat (no more waiting forever)
+- TODO: phase 2 switch persona by voice; phase 3 auto-extract facts into long-term memory
 
-### 阶段3：对话中自动记长期记忆
-- GPT 在回复末尾用 [记住]事实[/记住] 标记值得长期记的信息
-- 程序解析标记 → 存 NVS（重启保留）→ 从回复删除标记（不显示）
-- **A 方案**：存的同时 llm_set_system() 刷新当前会话系统提示
-  → 不重启也永久记住，且不被短期历史窗口（5轮）挤掉
-- memory_append_user() 合并事实，含去重（strstr 查重复）+ 上限保护
-- 修 bug：llm 的 s_system 256→1280（之前会截断记忆规则）
-- 实测：说"小狗叫旺财""音乐History" → 聊20+轮仍记得 → 重启后仍记得 ✅
-- 烧固件不丢记忆（NVS 与 app 分区分开；只有 erase-flash 才清）
+### Phase 3: auto-remember facts during conversation
+- GPT tags remember-worthy info at the end of a reply with [记住]fact[/记住]
+- Program parses the marker → stores to NVS (persists) → strips it from the reply (not shown)
+- **Approach A**: on save, also llm_set_system() to refresh the live system prompt
+  → remembered permanently without reboot, not pushed out by the short-term window (5 turns)
+- memory_append_user() merges facts, with dedup (strstr) + cap protection
+- Bug fix: llm s_system 256→1280 (was truncating the memory rule)
+- Verified: "the dog is named 旺财", "music History" → still remembered 20+ turns later → and after reboot ✅
+- Flashing firmware doesn't lose memory (NVS is a separate partition; only erase-flash clears it)
 
-### GPT 文字流式
-- llm 加 llm_chat_stream()：请求 stream:true，HTTP 回调解析 SSE
-  （逐行 data:{json}，提取 delta.content，跨 ON_DATA 拼行）
-- 回调逐块 printf 到串口；遇 '[' 停打印（不显示 [记住] 标记）
-- 完整回复仍累积，供存历史 + 提取记忆标记
-- 现象：串口(COM)上看不出明显区别（GPT 很快，短回复几乎瞬间出全）
-- 流式真正价值要等扬声器：流式 TTS 边生成边播才是体验质变
-- 待办：扬声器（MAX98357A）到货后再测流式效果
+### GPT text streaming
+- llm added llm_chat_stream(): request stream:true, HTTP callback parses SSE
+  (line-by-line data:{json}, extract delta.content, stitch lines across ON_DATA)
+- Callback prints chunks to serial; stops at '[' (hides the [记住] marker)
+- Full reply still accumulated for history + memory-marker extraction
+- Observation: no obvious difference on serial (GPT is fast, short replies appear almost instantly)
+- Streaming's real value waits for the speaker: streaming TTS that plays as it generates
+- TODO: retest streaming once the speaker (MAX98357A) arrives
 
-### 已验证的工作配置
-- 板：ESP32-S3-DEV-KIT-NXRX（N16R8，16MB flash + 8MB PSRAM）
-- INMP441：SCK=GPIO1, WS=GPIO2, SD=GPIO42, VDD=3V3, GND+L/R=右侧 GND
-- I2S：32 位槽，slot_mask LEFT，16kHz 单声道，MIC_SHIFT≈10~11
-- 证书：完整 bundle + cross-signed 验证
-- 大缓冲（音频/multipart）用 PSRAM：heap_caps_malloc(MALLOC_CAP_SPIRAM)
+### Verified working config
+- Board: ESP32-S3-DEV-KIT-NXRX (N16R8, 16MB flash + 8MB PSRAM)
+- INMP441: SCK=GPIO1, WS=GPIO2, SD=GPIO42, VDD=3V3, GND+L/R=right-side GND
+- I2S: 32-bit slot, slot_mask LEFT, 16kHz mono, MIC_SHIFT ≈ 10–11
+- Certs: full bundle + cross-signed verification
+- Large buffers (audio/multipart) in PSRAM: heap_caps_malloc(MALLOC_CAP_SPIRAM)
 
 ---
 
-## 2026-06-20 — K230 ↔ ESP32 UART 桥打通 + K230 改造视觉脑
+## 2026-06-20 — UART bridge K230 ↔ ESP32 + K230 becomes the vision brain
 
-### ✅ 已完成
-- **UART 桥双向实测通过** 🎉 —— 两颗芯片用 JSON 对话
-  - ESP32：新增 `uart_bridge` 组件（UART1，GPIO17 TX / GPIO18 RX），
-    NDJSON 传输（一行一条 JSON，`\n` 结尾）；`send_json()` + RX 任务按行回调
-  - example `examples/uart_bridge`：cJSON 解析，ping/pong + face 消息
-  - K230：`ai_robot/uart_link.py`（`send(dict)` / `poll()`）+ `tests/test_uart.py`
-  - 协议文档：`shared/protocol/protocol.md`（face/noface/ping/pong/state）
-  - 联调顺序：环回自测(TX↔RX 短接)→ 接 K230 双向，逐步验证
-- **K230 重构为视觉脑**：旧语音模块(record/STT/GPT/TTS)归档到 `legacy_audio/`（保留参考，不部署）；`test_code/`→`reference/`；新增 `ai_robot/tests/`
+### ✅ Done
+- **UART bridge bidirectional, HW-verified** 🎉 — the two chips talk in JSON
+  - ESP32: new `uart_bridge` component (UART1, GPIO17 TX / GPIO18 RX),
+    NDJSON transport (one JSON per line, `\n`-terminated); `send_json()` + RX task line callback
+  - example `examples/uart_bridge`: cJSON parse, ping/pong + face messages
+  - K230: `ai_robot/uart_link.py` (`send(dict)` / `poll()`) + `tests/test_uart.py`
+  - protocol doc: `shared/protocol/protocol.md` (face/noface/ping/pong/state)
+  - Bring-up order: loopback self-test (TX↔RX shorted) → connect K230 both ways, step by step
+- **K230 refactored to vision-only**: old voice modules (record/STT/GPT/TTS) archived to
+  `legacy_audio/` (kept for reference, not deployed); `test_code/`→`reference/`; added `ai_robot/tests/`
 
-### 🕳️ 踩坑
-- **K230 UART 引脚 = 树莓派标签的坑**：物理 pin8/pin10 在 pinout.xyz(树莓派图)
-  标 GPIO14/15，但 **K230 实际是 GPIO3/GPIO4 = 串口1(UART1)**。
-  填树莓派号 → `FPIOA set pin func failed`。改成 K230 真实 GPIO3/4 才对。
-  （庐山派：UART0/3 被 DEBUG 占，可用 1/2/4）
-- `UART.UART0` 属性不存在 → 别在 dict 里预求值全部常量；按需 `getattr(UART,"UART1")`
-- FPIOA 功能常量用实例 `fpioa.UART1_TXD`（与官方 demo 一致）
-- example 缺 `main/idf_component.yml` 声明 `espressif/cjson` → 组件找不到
-- `LINE_MAX` 与系统 `limits.h` 撞名 → 改 `JSON_LINE_MAX`
-- IDE 直接运行脚本工作目录不在 ai_robot → 开头 `os.chdir/sys.path` 才能 import
-- 上电瞬间有 `丢弃非法 JSON`（半截帧/噪声），稳定后干净 —— 协议"坏行丢弃重对齐"按预期工作，非 bug
+### 🕳️ Gotchas
+- **K230 UART pins = the Raspberry-Pi label trap**: physical pin8/pin10 are labeled
+  GPIO14/15 on pinout.xyz (Pi diagram), but on **K230 they're actually GPIO3/GPIO4 = UART1**.
+  Using the Pi numbers → `FPIOA set pin func failed`. Use the real K230 GPIO3/4.
+  (K230: UART0/3 taken by DEBUG; usable are 1/2/4)
+- `UART.UART0` attribute doesn't exist → don't eagerly evaluate all constants in a dict; use `getattr(UART,"UART1")`
+- Use the FPIOA function constants via the instance `fpioa.UART1_TXD` (matches the official demo)
+- example missing `main/idf_component.yml` declaring `espressif/cjson` → component not found
+- `LINE_MAX` clashes with system `limits.h` → renamed `JSON_LINE_MAX`
+- Running a script from the IDE has a cwd not in ai_robot → `os.chdir/sys.path` at the top to import
+- Brief `dropped invalid JSON` at power-on (half-frames/noise), clean once stable — the protocol's
+  "drop bad line and resync" working as intended, not a bug
 
-### 🧭 架构决策
-- **放弃 BLDC**：不用 2804+AS5600+PD6010B，头部用简单舵机即可
-- **K230 = 纯视觉**，语音全归 ESP32（ESP32 语音链路更完整）
-- "头/躯干 3 线脖子(屏+摄像头都上 K230)"= **未来想法，prototype 阶段不做**（太复杂，需 K230 写 ST7789 驱动 + 头部独立供电）
+### 🧭 Architecture decisions
+- **Dropped BLDC**: no 2804 + AS5600 + PD6010B, a simple servo is enough for the head
+- **K230 = vision only**, voice all on ESP32 (ESP32's voice pipeline is more complete)
+- "3-wire neck (screen + camera both on K230)" = **future idea, not for the prototype**
+  (too complex — needs an ST7789 MicroPython driver on K230 + separate head power)
 
-### 已验证的接线
+### Verified wiring
 ```
 ESP32 GPIO17(TX) → K230 pin10 GPIO4 (UART1 RXD)
 ESP32 GPIO18(RX) ← K230 pin8  GPIO3 (UART1 TXD)
-GND ──────────────  GND   （必须共地）
-115200 8N1，3.3V 直连无需电平转换
+GND ──────────────  GND   (must share ground)
+115200 8N1, direct 3.3V — no level shifter
 ```
 
 ---
 
-## 2026-06-20 — 语音英文化 + ST7789 像素风表情
+## 2026-06-20 — English voice + ST7789 pixel-art emotions
 
-### ✅ 语音改英文（chat_test）
-- 人设 + 默认系统提示改英文（memory.h personas、llm.c 兜底）
-- STT 语言 `zh`→`en`；退出词 `再见/拜拜`→`bye/goodbye`（`strcasecmp` 大小写不敏感）
-- 记忆标记 `[记住]`→`[remember]`；监视器日志全英文
-- 预填信息（David）英文化
-- 坑：英文记忆规则更长 → `sysprompt`/`s_system` 缓冲溢出（`format-truncation` 报错）→ 扩容到 +512 / 1536
-- **改完必须 `erase-flash`**：人设/用户信息存在 NVS，旧中文不覆盖，要擦掉重新预填
+### ✅ Voice switched to English (chat_test)
+- Personas + default system prompt to English (memory.h personas, llm.c fallback)
+- STT language `zh`→`en`; exit words `再见/拜拜`→`bye/goodbye` (`strcasecmp`, case-insensitive)
+- Memory marker `[记住]`→`[remember]`; console logs all English
+- Preloaded info (David) in English
+- Gotcha: the longer English memory rule overflowed `sysprompt`/`s_system`
+  (`format-truncation` error) → grew buffers to +512 / 1536
+- **Must `erase-flash` after editing**: persona/user info live in NVS, old Chinese values
+  aren't overwritten, so erase and re-preload
 
-### ✅ ST7789 像素风表情（screen_demo）
-- 新增 `emotion_engine` 组件：7 个表情
-  - IDLE 方块像素眼（复古机器人风）+ 其余圆角眼 + 眉毛（happy/sad/angry/surprised/thinking/listening）
-- 圆角 = `fill_round` 逐行填充（sqrt 算内缩）；眉毛 = 粗斜线（角度定情绪）
-- 平滑眨眼：眼高按 hpct 缩放；IDLE 用"眼皮渐合"（画满后黑色上下盖住）
+### ✅ ST7789 pixel-art emotions (screen_demo)
+- New `emotion_engine` component: 7 expressions
+  - IDLE blocky pixel eyes (retro-robot look) + the rest rounded eyes + eyebrows
+    (happy/sad/angry/surprised/thinking/listening)
+- Rounded corners = `fill_round` filling row by row (sqrt for the inset); eyebrows = thick slanted lines
+- Smooth blink: eye height scaled by hpct; IDLE uses "eyelids closing" (draw full, then black top/bottom)
 
-### 🕳️ 屏踩坑
-- **横纵反了** → 屏是横屏：MADCTL `0x00`→`0xA0`，尺寸 170x320→320x170，35 偏移从 X 挪到 Y
-- **眼睛边上 4 条竖线** → IDLE 方块眼 80px 宽 > 清除区 76px，切表情时残留边缘两列 → 清除区加宽到 84
-- **肉眼可见频闪** → 每帧"先刷黑再逐行画"有黑帧 → 改**离屏缓冲**：内存里画好整只眼，`display_blit` 一次刷出（新加驱动接口，单次 SPI DMA 传输）
-- **IDLE 眨眼不丝滑** → 原来是"睁眼↔一横"两段跳 → 改成眼皮渐合，可见高度连续收缩
+### 🕳️ Screen gotchas
+- **Rotated wrong** → the panel is landscape: MADCTL `0x00`→`0xA0`, size 170x320→320x170, 35 offset moved from X to Y
+- **4 vertical lines beside the eyes** → IDLE blocky eye (80px) wider than the clear box (76px), leaving 2 edge columns on switch → widened the clear box to 84
+- **Visible flicker** → each frame "clear to black then draw row by row" has a black frame → moved to an
+  **offscreen framebuffer**: render the whole eye in RAM, `display_blit` once (new driver API, single SPI DMA transfer)
+- **IDLE blink not smooth** → was a two-state jump (open ↔ one line) → changed to eyelids closing, height shrinks continuously
 
-### 组件/接口
-- `display_driver` 新增 `display_blit(x,y,w,h,buf)`：预渲染 RGB565 缓冲一次性刷屏
-- 屏 3.3V；接线 SCLK12/MOSI11/CS10/DC9/RST8/BLK46
+### Components / interfaces
+- `display_driver` added `display_blit(x,y,w,h,buf)`: blit a pre-rendered RGB565 buffer in one shot
+- Screen 3.3V
+
+---
+
+## 2026-06-20 — Full integration + face-following + performance tuning
+
+### ✅ Pin layout finalized + saved a GND pin
+- Screen SPI moved to adjacent header pins GPIO 4/5/6/7/15/16 (module order SCL SDA RES DC CS BLK, plugs straight in)
+- Speaker MAX98357A 41/40/39; removed the obsolete AS5600/BLDC; added a full pin-overview comment to BSP
+- **Mic L/R now software-driven low on GPIO21** (saves a GND pin — 4 GNDs are enough: screen/servo/mic/K230)
+
+### ✅ Face following (K230 vision → ESP32 head turn)
+- K230 `face_detect.py`: official face_detection demo + compute face_x (largest face center, normalized -1..1) + UART send
+- Camera `sensor_id=1` (CSI1); `display_size=None`; upside-down mount fixed with `pl.sensor.set_vflip(True)`
+- ESP32 `examples/face_track`: continuous servo, proportional speed to follow, camera-feedback closed loop; `TRACK_SIGN` for direction
+- **K230 `main.py` auto-run**: face detection on power-up (self-contained, uses uart_link/board), 3s window to interrupt via IDE
+
+### ✅ Integrated firmware esp32/main
+- Orchestrates: wake → chat + emotion screen + face-follow + LED, all driven by the `app_state` machine
+- State→output mapping: IDLE blink/dim-green, LISTENING wide/blue, PROCESSING look-up/yellow, SPEAKING happy/magenta
+- **Follows the face during conversation too** (keeps looking at you); no speaker yet, reply to serial
+- emotion_engine promoted to a component; display_driver unified to landscape 320x170 + blit
+
+### 🕳️ Integration gotchas
+- **Running build inside main/** → "can't find `oleaut32`" host libs: main/CMakeLists is a component file, run from the `esp32/` root
+- **IDF builds all components by default** → obsolete as5600 (BSP defines removed) + mic component errored → `set(COMPONENTS main)` to build only the dependency closure
+- **Stutter while talking** → UART RX task priority 10 was starving the audio CPU → lowered to 4; throttled the K230 send rate
+- **30fps needed for smoothness** → after the priority fix, put it back to ~30Hz (`SEND_MS=33`), no more audio stutter
+- **`app_state` spamming IDLE→IDLE** → don't log if the state didn't change
+- **Build config**: copied `partitions.csv` (esp-sr model partition) + `sdkconfig.defaults` (PSRAM/certs) from chat_test; added esp-sr to `main/idf_component.yml`
+
+### 🔒 Security
+- Found `mic_test/main/config.h` (with API key/WiFi) **was committed and pushed to GitHub** (commit 52c5da4)
+- Handled: `git rm --cached` to stop tracking + added `config.h` to `.gitignore`; private repo so low risk, but advised rotating the OpenAI key (must rotate before ever making the repo public)

@@ -7,7 +7,7 @@
 void test_build_request_contains_model(void)
 {
     char buf[512];
-    int len = cloud_api_build_request("你好", buf, sizeof(buf));
+    int len = cloud_api_build_request("hello", buf, sizeof(buf));
 
     TEST_ASSERT_GREATER_THAN(0, len);
     TEST_ASSERT_NOT_NULL(strstr(buf, "claude-haiku"));
@@ -16,15 +16,15 @@ void test_build_request_contains_model(void)
 void test_build_request_contains_user_message(void)
 {
     char buf[512];
-    cloud_api_build_request("你好世界", buf, sizeof(buf));
+    cloud_api_build_request("hello world", buf, sizeof(buf));
 
-    TEST_ASSERT_NOT_NULL(strstr(buf, "你好世界"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "hello world"));
 }
 
 void test_build_request_buffer_too_small_returns_error(void)
 {
     char small_buf[8];
-    int len = cloud_api_build_request("你好", small_buf, sizeof(small_buf));
+    int len = cloud_api_build_request("hello", small_buf, sizeof(small_buf));
 
     TEST_ASSERT_EQUAL(-1, len);
 }
@@ -34,13 +34,13 @@ void test_build_request_buffer_too_small_returns_error(void)
 void test_parse_response_extracts_text(void)
 {
     const char *json =
-        "{\"content\":[{\"type\":\"text\",\"text\":\"你好！\"}]}";
+        "{\"content\":[{\"type\":\"text\",\"text\":\"hello!\"}]}";
 
     char out[128];
     bool ok = cloud_api_parse_response(json, out, sizeof(out));
 
     TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("你好！", out);
+    TEST_ASSERT_EQUAL_STRING("hello!", out);
 }
 
 void test_parse_response_invalid_json_returns_false(void)

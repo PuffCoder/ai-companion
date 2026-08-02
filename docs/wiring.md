@@ -1,64 +1,65 @@
-# 接线图 / Wiring
+# Wiring
 
-开发板：ESP32-S3-DEV-KIT-NXRX
+Board: ESP32-S3-DEV-KIT-N16R8. Authoritative pin map:
+[`esp32/components/bsp/bsp_board.h`](../esp32/components/bsp/bsp_board.h).
 
 ---
 
-## INMP441 麦克风（I2S）
+## INMP441 microphone (I2S)
 
-| INMP441 | ESP32-S3 | 位置说明 |
-|---------|----------|---------|
-| VDD | 3V3 | 左上角 3V3 |
-| GND | GND | **用右侧的 GND**（GPIO19 下面那个）|
-| L/R | GND | **同样用右侧 GND**（关键，见下） |
-| SCK | GPIO1 | 右侧 RTC/TOUCH1 |
-| WS  | GPIO2 | 右侧 RTC/TOUCH2 |
-| SD  | GPIO42 | 右侧 MTMS/GPIO42 |
+| INMP441 | ESP32-S3 | Notes |
+|---------|----------|-------|
+| VDD | 3V3 | |
+| GND | GND | use a **right-side** GND (see gotcha) |
+| L/R | GPIO21 | driven LOW in software = left channel (saves a GND pin) |
+| SCK | GPIO1 | bit clock (BCLK) |
+| WS  | GPIO2 | word select (LRCLK) |
+| SD  | GPIO42 | data |
 
+### ⚠️ Gotchas (learned the hard way)
+- **GND matters**: L/R was first tied to a left-side GND (under GPIO14) and the mic read
+  garbage (all-zero / railing). Moving to a **right-side** GND (under GPIO19) fixed it.
+  Lesson: for I2S signals, keep signal and ground on the **same side / nearest GND**.
+- **L/R is now a GPIO**, not a wire to GND — GPIO21 is driven LOW in firmware to select
+  the left channel. This frees one physical GND pin.
+- INMP441 is a **24-bit** mic: read with a **32-bit I2S slot + right-shift**. Reading as
+  16-bit gives a very weak signal.
+- `slot_mask` = LEFT (because L/R = low = left channel).
+
+### Verification (mic_test)
 ```
-   INMP441                ESP32-S3
-   ┌────────┐
-   │ VDD    │────────────► 3V3
-   │ GND    │────────────► GND (右侧, GPIO19 下方)
-   │ SD     │────────────► GPIO42
-   │ SCK    │────────────► GPIO1
-   │ WS     │────────────► GPIO2
-   │ L/R    │────────────► GND (右侧)  ← 选左声道
-   └────────┘
-```
-
-### ⚠️ 踩坑记录（重要）
-- **GND 必须接对**：最初 L/R 接到左下角（GPIO14 下方）的 GND，
-  导致读不到数据（全 0 / railing / 垃圾）。
-  改接到**右侧**（GPIO19 下方）的 GND 后立即正常。
-- 教训：板子两侧的 GND 看似都一样，但实际接触/走线可能有差异。
-  接 I2S 这类信号时，**信号线和地线尽量用同一侧、就近的 GND**。
-- INMP441 是 **24 位**麦克风：代码必须用 **32 位 I2S 槽 + 右移**，
-  用 16 位读取信号会非常弱。
-- `slot_mask` 锁 **LEFT**（因为 L/R 接 GND = 左声道）。
-
-### 验证（mic_test）
-```
-安静     → 平均 12~26，峰值 50~120
-说话     → 平均 500~1800，峰值 2000~5000
+silence  → avg 12–26,   peak 50–120
+speech   → avg 500–1800, peak 2000–5000
 ```
 
 ---
 
-## 其他外设（规划）
+## Other peripherals
 
-| 外设 | 信号 | GPIO |
-|------|------|------|
-| WS2812 LED | DIN | 38 |
-| ST7789 LCD | SCLK/MOSI/CS/DC/RST/BL | 12/11/10/9/8/46 |
-| MG90S 舵机 | PWM | 14 |
-| MAX98357A（待接）| BCLK/LRCLK/DOUT | 待定（避开冲突）|
+| Peripheral | Signals | GPIO | Power |
+|------------|---------|------|-------|
+| ST7789 LCD (SPI, landscape 320×170) | SCL/SDA/RES/DC/CS/BLK | 4 / 5 / 6 / 7 / 15 / 16 | 3.3V |
+| WS2812 LED | DIN | 38 | 5V |
+| Servo (head) | PWM | 14 | external 5V |
+| UART → K230 | TX / RX | 17 / 18 | — |
+| MAX98357A speaker (planned) | BCLK / LRC / DIN | 41 / 40 / 39 | 5V |
 
-### 不可用引脚
+The ST7789 module pin order **SCL SDA RES DC CS BLK** maps 1:1 to the adjacent header
+pins 4/5/6/7/15/16, so the ribbon plugs straight in.
+
+### UART to K230
 ```
-0,3,45,46     启动 strapping
-26~32         SPI Flash
-33~37         PSRAM（N16R8 八线）
-19,20         USB D-/D+
-43,44         UART0 串口日志
+ESP32 GPIO17 (TX) → K230 pin10 (GPIO4, UART1 RX)
+ESP32 GPIO18 (RX) ← K230 pin8  (GPIO3, UART1 TX)
+GND ──────────────  GND     (must share ground)
+```
+⚠️ K230 uses **its own GPIO numbers** (pin8/pin10 = GPIO3/GPIO4 = UART1), **not** the
+Raspberry-Pi labels (GPIO14/15) printed on some pinout diagrams.
+
+### Reserved / do-not-use pins (ESP32-S3 N16R8)
+```
+0, 3, 45, 46   boot strapping
+26–37          SPI flash / octal PSRAM
+19, 20         USB D-/D+
+43, 44         UART0 console log
 ```

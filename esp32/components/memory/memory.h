@@ -2,47 +2,50 @@
 
 #include <stdbool.h>
 
-/* 长期记忆：把用户信息存进 NVS（flash），断电/重启不丢。
- * 只存「事实摘要」（几百字），覆盖更新，不会膨胀。 */
+/* Long-term memory: stores user info in NVS (flash), survives power loss/reboot.
+ * Keeps only a short fact summary (a few hundred bytes), overwritten in place. */
 
-#define USER_MEMORY_MAX 512   /* 用户信息上限（字节）*/
-#define PERSONA_MAX     512   /* 人设上限（字节）*/
+#define USER_MEMORY_MAX 512   /* max user-info bytes */
+#define PERSONA_MAX     512   /* max persona bytes */
 
-/* ── 人设模板库（可扩展）────────────────────── */
-#define PERSONA_MINION  "你是小黄人，活泼调皮、爱吃香蕉、说话简短可爱、偶尔卖萌。"
-#define PERSONA_BUTLER  "你是优雅的管家，礼貌稳重、用敬语、回答得体周到。"
-#define PERSONA_FRIEND  "你是知心朋友，轻松随意、幽默会开玩笑、像老友聊天。"
+/* ── Persona templates (edit here to change personality) ────────
+ * To change the robot's character, edit these prompts (or add a new one).
+ * Note: persona is stored in NVS — after editing, run `idf.py erase-flash`
+ * for it to take effect (see below). */
+#define PERSONA_MINION  "You are a Minion: playful and mischievous, love bananas, talk in short cute sentences, occasionally silly. Always reply in English."
+#define PERSONA_BUTLER  "You are an elegant butler: polite, composed, courteous and thoughtful. Always reply in English."
+#define PERSONA_FRIEND  "You are a close friend: relaxed, funny, joking around like old buddies. Always reply in English."
 
-/* 默认人设（首次开机写入 NVS）*/
-#define PERSONA_DEFAULT PERSONA_MINION
+/* Default persona (written to NVS on first boot) — change this line to switch */
+#define PERSONA_DEFAULT PERSONA_FRIEND
 
 /**
- * @brief 初始化（NVS）。app_main 里调一次。
+ * @brief Init (NVS). Call once in app_main.
  */
 void memory_init(void);
 
 /**
- * @brief 写入用户信息（覆盖，存 flash）。
+ * @brief Write user info (overwrite, stored in flash).
  */
 void memory_set_user(const char *info);
 
 /**
- * @brief 读出用户信息。没有则 out 为空字符串。
- * @return 有内容返回 true
+ * @brief Read user info. out is empty string if none.
+ * @return true if there is content
  */
 bool memory_get_user(char *out, int out_len);
 
 /**
- * @brief 追加一条事实到用户信息（合并存 flash，有上限保护）。
+ * @brief Append a fact to user info (merged into flash, capped).
  */
 void memory_append_user(const char *fact);
 
 /**
- * @brief 写入人设（覆盖，存 flash）。
+ * @brief Write persona (overwrite, stored in flash).
  */
 void memory_set_persona(const char *persona);
 
 /**
- * @brief 读出人设。没存过则返回 false。
+ * @brief Read persona. Returns false if never stored.
  */
 bool memory_get_persona(char *out, int out_len);
