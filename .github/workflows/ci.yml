@@ -20,7 +20,7 @@ jobs:
         uses: espressif/esp-idf-ci-action@v1
         with:
           # match your local IDF; if this tag fails, try release-v6.0 or latest
-          esp_idf_version: release-v5.4
+          esp_idf_version: release-v6.0.1
           target: esp32s3
           path: esp32
 
