@@ -13,7 +13,7 @@ jobs:
     permissions:
       contents: write        # needed to create the release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v1
 
       - name: Provide config.h
         run: cp esp32/main/config.h.example esp32/main/config.h
@@ -21,7 +21,7 @@ jobs:
       - name: Build firmware
         uses: espressif/esp-idf-ci-action@v1
         with:
-          esp_idf_version: release-v5.4
+          esp_idf_version: release-v6.0.1
           target: esp32s3
           path: esp32
 
